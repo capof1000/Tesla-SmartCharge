@@ -1,162 +1,204 @@
 blueprint:
-  name: Gestion intelligente de charge VE + Modes externes
-  description: >
-    Contrôle la charge d’un véhicule selon plusieurs modes (Auto, Solaire, Heures Creuses,
-    Forcé) avec possibilité de changer le mode depuis une entité externe.
+  name: Optimisation Charge Tesla Photovoltaïque
+  description: Optimise la charge selon les panneaux solaires et le mode choisi
   domain: automation
 
   input:
-    mode_selector:
-      name: "Sélecteur de mode"
-      description: "Input_select permettant de choisir le mode de charge"
-      selector:
-        entity:
-          domain: input_select
 
-    charger_switch:
-      name: "Chargeur (switch)"
+    tesla_switch:
+      name: Switch de charge Tesla
       selector:
         entity:
           domain: switch
 
-    net_power:
-      name: "Puissance nette (W)"
-      description: "Production - consommation (valeur positive = surplus)"
+    tesla_amperage:
+      name: Intensité de charge (A)
       selector:
         entity:
-          domain: sensor
-          device_class: power
+          domain: number
 
     tesla_soc:
-      name: "% de batterie Tesla (%)"
+      name: Pourcentage batterie Tesla (%)
       selector:
         entity:
           domain: sensor
           device_class: battery
 
-    min_soc:
-      name: "SOC minimum (%)"
-      default: 20
+    net_consumption:
+      name: Consommation nette du foyer (W)
+      selector:
+        entity:
+          domain: sensor
+          device_class: power
+
+    tesla_min_power:
+      name: Puissance Tesla à 5A (W)
+      default: 1100
       selector:
         number:
-          min: 0
-          max: 100
-          step: 1
+          min: 500
+          max: 3000
+          unit_of_measurement: "W"
 
-    max_soc:
-      name: "SOC maximum (%)"
-      default: 80
+    max_house_power:
+      name: Puissance max du foyer (W)
+      default: 12000
       selector:
         number:
-          min: 0
-          max: 100
-          step: 1
+          min: 3000
+          max: 36000
+          unit_of_measurement: "W"
 
-    surplus_watts:
-      name: "Surplus nécessaire pour charger (W)"
-      default: 1500
-      selector:
-        number:
-          min: 0
-          max: 5000
-          step: 100
-
-    off_delay:
-      name: "Délai avant arrêt (s)"
-      default: 30
+    delay_off:
+      name: Temps minimum ON avant OFF (s)
+      default: 120
       selector:
         number:
           min: 0
           max: 600
-          step: 5
+          unit_of_measurement: "s"
+
+    charge_mode:
+      name: Mode de charge
+      description: 1=Auto, 2=Radin, 3=Smart, 4=Force
+      selector:
+        number:
+          min: 1
+          max: 4
+          step: 1
 
 mode: restart
 
 trigger:
+  # Surproduction + conditions selon mode
   - platform: state
-    entity_id: !input mode_selector
+    entity_id: !input net_consumption
+
+  # Sécurité disjoncteur
   - platform: state
-    entity_id: !input net_power
-  - platform: state
-    entity_id: !input tesla_soc
+    entity_id: !input tesla_switch
+
+  # Sécurité de recalcul
+  - platform: time_pattern
+    minutes: "/5"
+    id: periodic_check
 
 variables:
-  mode: "{{ states( input.mode_selector ) }}"
-  soc: "{{ states( input.tesla_soc )|float }}"
-  net: "{{ states( input.net_power )|float }}"
-  min_soc: !input min_soc
-  max_soc: !input max_soc
-  surplus: !input surplus_watts
+  mode: !input charge_mode
+  net: "{{ states( (input_net := input.net_consumption) ) | float }}"
+  soc: "{{ states( (input_soc := input.tesla_soc) ) | float }}"
+  min_power: !input tesla_min_power
+  max_house: !input max_house_power
+  switch_id: !input tesla_switch
+  amp_entity: !input tesla_amperage
 
-condition: []
+  # Calcul intensité max disponible
+  available_power: "{{ 0 - net }}"   # surproduction = négatif
+  computed_amps: >-
+    {% set watts = available_power %}
+    {% set amp = (watts / (min_power/5)) | float %}
+    {% if amp < 5 %} 0
+    {% elif amp > 32 %} 32
+    {% else %} {{ amp | round(0) }}
+    {% endif %}
 
 action:
 
   - choose:
 
-      ## --- MODE : FORCÉ ---------------------------------------
-      - conditions: "{{ mode == 'Force' }}"
+      ###############################################
+      # MODE 1 — AUTOCONSOMMATION
+      ###############################################
+      - conditions: "{{ mode == 1 }}"
         sequence:
-          - service: switch.turn_on
-            target:
-              entity_id: !input charger_switch
-
-      ## --- MODE : ARRÊT ---------------------------------------
-      - conditions: "{{ mode == 'Off' }}"
-        sequence:
-          - service: switch.turn_off
-            target:
-              entity_id: !input charger_switch
-
-      ## --- MODE : HEURES CREUSES ------------------------------
-      - conditions: "{{ mode == 'Heures Creuses' }}"
-        sequence:
-          - choose:
-              - conditions: "{{ soc < max_soc }}"
-                sequence:
-                  - service: switch.turn_on
+          - if:
+              - "{{ net <= 0 }}"
+            then:
+              - service: switch.turn_on
+                target:
+                  entity_id: "{{ switch_id }}"
+              - if:
+                  - "{{ computed_amps >= 5 }}"
+                then:
+                  - service: number.set_value
                     target:
-                      entity_id: !input charger_switch
-            default:
+                      entity_id: "{{ amp_entity }}"
+                    data:
+                      value: "{{ computed_amps }}"
+            else:
+              - delay: "{{ states('!input delay_off') | int }}"
               - service: switch.turn_off
                 target:
-                  entity_id: !input charger_switch
+                  entity_id: "{{ switch_id }}"
 
-      ## --- MODE : SOLAIRE -------------------------------------
-      - conditions: "{{ mode == 'Solaire' }}"
+      ###############################################
+      # MODE 2 — RADIN
+      # Charge uniquement si net <= min_power
+      ###############################################
+      - conditions: "{{ mode == 2 }}"
         sequence:
-          - choose:
-              - conditions: >
-                  {{ net > surplus and soc < max_soc }}
-                sequence:
-                  - service: switch.turn_on
-                    target:
-                      entity_id: !input charger_switch
-
-            default:
-              - delay: !input off_delay
+          - if:
+              - "{{ net <= (min_power * -1) }}"
+            then:
+              - service: switch.turn_on
+                target:
+                  entity_id: "{{ switch_id }}"
+              - service: number.set_value
+                target:
+                  entity_id: "{{ amp_entity }}"
+                data:
+                  value: 5
+            else:
+              - delay: "{{ states('!input delay_off') | int }}"
               - service: switch.turn_off
                 target:
-                  entity_id: !input charger_switch
+                  entity_id: "{{ switch_id }}"
 
-      ## --- MODE : AUTO (HC + SOLAIRE + limites SOC) -----------
-      - conditions: "{{ mode == 'Auto' }}"
+      ###############################################
+      # MODE 3 — SMART
+      # Seuil = min_power * soc/100
+      ###############################################
+      - conditions: "{{ mode == 3 }}"
         sequence:
-          - choose:
-              - conditions: "{{ soc < min_soc }}"
-                sequence:
-                  - service: switch.turn_on
+          - variables:
+              smart_threshold: "{{ (min_power * (soc/100)) * -1 }}"
+          - if:
+              - "{{ net <= smart_threshold }}"
+            then:
+              - service: switch.turn_on
+                target:
+                  entity_id: "{{ switch_id }}"
+              - if:
+                  - "{{ computed_amps >= 5 }}"
+                then:
+                  - service: number.set_value
                     target:
-                      entity_id: !input charger_switch
-
-              - conditions: "{{ net > surplus and soc < max_soc }}"
-                sequence:
-                  - service: switch.turn_on
-                    target:
-                      entity_id: !input charger_switch
-
-            default:
-              - delay: !input off_delay
+                      entity_id: "{{ amp_entity }}"
+                    data:
+                      value: "{{ computed_amps }}"
+            else:
+              - delay: "{{ states('!input delay_off') | int }}"
               - service: switch.turn_off
                 target:
-                  entity_id: !input charger_switch
+                  entity_id: "{{ switch_id }}"
+
+      ###############################################
+      # MODE 4 — CHARGE FORCÉE
+      ###############################################
+      - conditions: "{{ mode == 4 }}"
+        sequence:
+          - if:
+              - "{{ (net * -1) + min_power <= max_house }}"
+            then:
+              - service: switch.turn_on
+                target:
+                  entity_id: "{{ switch_id }}"
+              - service: number.set_value
+                target:
+                  entity_id: "{{ amp_entity }}"
+                data:
+                  value: 32
+            else:
+              - service: switch.turn_off
+                target:
+                  entity_id: "{{ switch_id }}"
