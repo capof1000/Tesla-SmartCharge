@@ -1,0 +1,205 @@
+blueprint:
+  name: Optimiseur Solaire Tesla – Multi-modes + Modulation
+  description: >
+    Optimize Tesla charging using solar excess, selectable modes, dynamic power modulation,
+    safety max house power and reliable periodic re-evaluation.
+  domain: automation
+
+  input:
+
+    # -------- Capteurs principaux ----------
+    net_consumption:
+      name: Consommation nette du foyer (W)
+      selector:
+        entity:
+          domain: sensor
+          device_class: power
+
+    tesla_switch:
+      name: Switch ON/OFF de la charge Tesla
+      selector:
+        entity:
+          domain: switch
+
+    tesla_current:
+      name: Intensité Tesla (A) – input_number 5 → 32A
+      selector:
+        entity:
+          domain: input_number
+
+    tesla_soc:
+      name: % de batterie Tesla (%)
+      selector:
+        entity:
+          domain: sensor
+          device_class: battery
+
+    # -------- Paramètres ----------
+    tesla_min_power:
+      name: Puissance Tesla à 5A (W)
+      default: 1100
+      selector:
+        number:
+          min: 500
+          max: 3000
+          step: 50
+          unit_of_measurement: W
+
+    max_house_power:
+      name: Puissance Max du foyer (W)
+      default: 12000
+      selector:
+        number:
+          min: 4000
+          max: 36000
+          step: 1000
+          unit_of_measurement: W
+
+    delay_off:
+      name: Délai OFF (s)
+      default: 120
+      selector:
+        number:
+          min: 0
+          max: 3600
+          step: 1
+          unit_of_measurement: s
+
+    # -------- Mode sélectionnable ----------
+    charge_mode:
+      name: Mode de charge
+      description: Input_select avec : autoconsommation, radin, smart, forcee
+      selector:
+        entity:
+          domain: input_select
+
+
+mode: restart
+
+# ------------------------------------------------------------
+# TRIGGERS
+# ------------------------------------------------------------
+trigger:
+
+  # Conso nette change
+  - platform: state
+    entity_id: !input net_consumption
+    id: check
+
+  # % batterie change (utile en mode smart)
+  - platform: state
+    entity_id: !input tesla_soc
+    id: check
+
+  # Toutes les 5 minutes → fiabilité maxi
+  - platform: time_pattern
+    minutes: "/5"
+    id: periodic
+
+# ------------------------------------------------------------
+# VARIABLES
+# ------------------------------------------------------------
+variables:
+
+  net: "{{ states( (inputs.net_consumption) ) | float }}"
+  soc: "{{ states( (inputs.tesla_soc) ) | float }}"
+  mode: "{{ states( (inputs.charge_mode) ) }}"
+
+  tesla_switch: !input tesla_switch
+  tesla_current_entity: !input tesla_current
+  current_A: "{{ states( (inputs.tesla_current) ) | float }}"
+
+  tesla_min_power: !input tesla_min_power
+  max_power: !input max_house_power
+  delay_off: !input delay_off
+
+  # Puissance réelle consommée par Tesla ≈ proportionnelle à l’intensité
+  tesla_power: "{{ current_A * (tesla_min_power / 5) }}"
+
+  # Seuil mode smart
+  smart_threshold: "{{ -(tesla_min_power * soc / 100) }}"
+
+# ------------------------------------------------------------
+# ACTIONS
+# ------------------------------------------------------------
+action:
+
+  # ------------------------------
+  # MODE AUTOCONSOMMATION
+  # ------------------------------
+  - choose:
+      - conditions: "{{ mode == 'autoconsommation' }}"
+        sequence:
+
+          # Allumage en surproduction
+          - if: "{{ net < 0 }}"
+            then:
+              - service: switch.turn_on
+                target: { entity_id: "{{ tesla_switch }}" }
+
+          # Extinction si on consomme plus que ce que Tesla consomme
+          - if: "{{ net > tesla_power }}"
+            then:
+              - delay: "{{ delay_off }}"
+              - service: switch.turn_off
+                target: { entity_id: "{{ tesla_switch }}" }
+
+          # Modulation : calcul intensité idéale
+          - variables:
+              available: "{{ (net * -1) | float }}"
+              target_A: "{{ [5, ([32, (available / (tesla_min_power/5))] | min)] | max }}"
+          - service: input_number.set_value
+            target:
+              entity_id: "{{ tesla_current_entity }}"
+            data:
+              value: "{{ target_A }}"
+
+  # ------------------------------
+  # MODE RADIN
+  # ------------------------------
+      - conditions: "{{ mode == 'radin' }}"
+        sequence:
+          - if: "{{ net < -tesla_min_power }}"
+            then:
+              - service: switch.turn_on
+                target: { entity_id: "{{ tesla_switch }}" }
+          - if: "{{ net > -tesla_min_power }}"
+            then:
+              - delay: "{{ delay_off }}"
+              - service: switch.turn_off
+                target: { entity_id: "{{ tesla_switch }}" }
+
+  # ------------------------------
+  # MODE SMART
+  # ------------------------------
+      - conditions: "{{ mode == 'smart' }}"
+        sequence:
+          - if: "{{ net < smart_threshold }}"
+            then:
+              - service: switch.turn_on
+                target: { entity_id: "{{ tesla_switch }}" }
+          - if: "{{ net > smart_threshold }}"
+            then:
+              - delay: "{{ delay_off }}"
+              - service: switch.turn_off
+                target: { entity_id: "{{ tesla_switch }}" }
+
+  # ------------------------------
+  # MODE CHARGE FORCÉE
+  # ------------------------------
+      - conditions: "{{ mode == 'forcee' }}"
+        sequence:
+
+          # Charger tant que la maison reste sous le max
+          - if: "{{ net + tesla_power < max_power }}"
+            then:
+              - service: switch.turn_on
+                target: { entity_id: "{{ tesla_switch }}" }
+
+          # Couper si risque disjonction
+          - if: "{{ net + tesla_power >= max_power }}"
+            then:
+              - delay: "{{ delay_off }}"
+              - service: switch.turn_off
+                target: { entity_id: "{{ tesla_switch }}" }
+
