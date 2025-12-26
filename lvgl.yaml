@@ -1,0 +1,48 @@
+esphome:
+  name: esphome-screen-lvgl
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+logger:
+  level: WARN
+
+api:
+
+ota:
+  - platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+spi:
+  clk_pin: GPIO18
+  mosi_pin: GPIO23
+
+display:
+  - platform: ili9xxx
+    id: my_display
+    model: ili9341
+    cs_pin: GPIO15
+    dc_pin: GPIO2
+    reset_pin: GPIO4
+    dimensions:
+      width: 320
+      height: 240
+    invert_colors: true
+    auto_clear_enabled: false
+
+lvgl:
+  displays: my_display
+  buffer_size: 10%
+  log_level: WARN
+  
+  pages:
+    - id: main_page
+      widgets:
+        - label:
+            align: CENTER
+            text: "Test LVGL"
