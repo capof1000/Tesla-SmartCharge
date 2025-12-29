@@ -1,0 +1,147 @@
+substitutions:
+  # all substitutions for this project
+  friendly_name: Combo
+  device_name: "tesla-combo"
+  device_description: Tesla Combo
+  ble_mac_address: !secret ble_mac_address
+  tesla_vin: !secret tesla_vin
+  charging_amps_max: "32"
+
+esp32:
+  board: esp32dev  # set as needed for your board
+  # si besoin de traverser un mur en beton ou portee plus grande, ce module ci dessous avec antenne externe y arrive, pas le esp32 dev kit, decommenter les 2 lignes en dessous et commenter la ligne ci dessus
+  #board: seeed_xiao_esp32c3
+  #variant: esp32c3
+  framework:
+    type: esp-idf
+logger:
+  level: DEBUG
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+  - platform: web_server
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+# Ajout du serveur web
+web_server:
+  port: 80
+  version: 2
+  log: false
+
+
+external_components:
+  source: github://PedroKTFC/esphome-tesla-ble
+
+packages:
+  #common: github://capof1000/Tesla-BLE/packages/common.yml@main
+  #client: github://capof1000/Tesla-BLE/packages/client.yml@main
+  base:  github://PedroKTFC/esphome-tesla-ble/packages/base.yml
+  common: github://PedroKTFC/esphome-tesla-ble/packages/common.yml
+  project: github://PedroKTFC/esphome-tesla-ble/packages/project.yml
+  client: github://PedroKTFC/esphome-tesla-ble/packages/client.yml
+  # listener: github://PedroKTFC/esphome-tesla-ble/packages/listener.yml # Uncomment this to scan find your VIN BLE MAC address
+
+esphome:
+  name: ${device_name}
+  name_add_mac_suffix: false
+  friendly_name: ${friendly_name}
+  libraries:
+    - TeslaBLE=https://github.com/PedroKTFC/tesla-ble.git
+
+tesla_ble_vehicle:
+  odometer: # miles by default, edit the entity in home assistant if you need km
+    name: "Compteur" # Rename if desired
+# At the time of writing, these are set to the default values. If you require a different value, uncomment and edit the value
+#  update_interval: 2s # Base polling interval, used for VCSEC sensors
+#  post_wake_poll_time: 300 # How long to poll for data after car awakes (s)
+#  poll_data_period: 60 # Normal period when polling for data when not asleep (s)
+#  poll_charging_period: 2 # Period to poll for data when charging (s)
+
+###### SCREEN ###
+spi:
+  clk_pin: GPIO18
+  mosi_pin: GPIO23
+
+# Capteurs pour les informations système
+sensor:
+  - platform: template
+    name: "CPU Usage"
+    id: cpu_usage
+    unit_of_measurement: "%"
+    accuracy_decimals: 0
+    update_interval: 2s
+    lambda: |-
+      return esp_get_free_heap_size() / 1000.0;
+  
+display:
+  - platform: ili9xxx
+    id: my_display
+    model: ili9341
+    cs_pin: GPIO15
+    dc_pin: GPIO2
+    reset_pin: GPIO4
+    dimensions:
+      width: 320
+      height: 240
+    invert_colors: false
+    auto_clear_enabled: false
+
+lvgl:
+  displays: my_display
+  buffer_size: 10%
+  log_level: WARN
+  
+  # Définition d'un style avec police plus grande
+  style_definitions:
+    - id: style_12_text
+      text_font: montserrat_12
+  
+  pages:
+    - id: main_page
+      widgets:
+        #- label:
+        #    align: CENTER
+        #    text: "Test LVGL"
+ 
+        # Example widget
+        - arc:
+            align: CENTER
+            x: 30
+            y: 20
+            id: arc_id
+            value: 75
+            min_value: 0
+            max_value: 100
+            adjustable: true
+            on_value:
+              - logger.log:
+                  format: "Arc value is: %.0f"
+                  args: [ 'x' ]
+        
+        # Informations système en bas à droite
+     
+        - label:
+            id: cpu_label
+            align: BOTTOM_RIGHT
+            x: -5
+            y: -5
+            text: "CPU: --"
+            text_color: 0x000000
+            styles: style_12_text
+
+
+# Mise à jour des labels avec les valeurs des capteurs
+interval:
+  - interval: 2s
+    then:
+      - lvgl.label.update:
+          id: cpu_label
+          text: !lambda |-
+            return ("CPU: " + to_string((int)id(cpu_usage).state) + " %").c_str();
