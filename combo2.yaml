@@ -1,0 +1,177 @@
+substitutions:
+  friendly_name: Combo
+  device_name: "tesla-combo"
+  device_description: Tesla Combo
+  charging_amps_max: "32"
+
+############################
+# ESP32
+############################
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+############################
+# CORE
+############################
+logger:
+  level: DEBUG
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+web_server:
+  port: 80
+  version: 2
+  log: false
+
+############################
+# TESLA BLE
+############################
+external_components:
+  source: github://PedroKTFC/esphome-tesla-ble
+
+packages:
+  base: github://PedroKTFC/esphome-tesla-ble/packages/base.yml
+  common: github://PedroKTFC/esphome-tesla-ble/packages/common.yml
+  project: github://PedroKTFC/esphome-tesla-ble/packages/project.yml
+  client: github://PedroKTFC/esphome-tesla-ble/packages/client.yml
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
+  name_add_mac_suffix: false
+  libraries:
+    - TeslaBLE=https://github.com/PedroKTFC/tesla-ble.git
+
+############################
+# SPI
+############################
+spi:
+  clk_pin: GPIO18
+  mosi_pin: GPIO23
+
+############################
+# DISPLAY
+############################
+display:
+  - platform: ili9xxx
+    id: my_display
+    model: ili9341
+    cs_pin: GPIO15
+    dc_pin: GPIO2
+    reset_pin: GPIO4
+    dimensions:
+      width: 320
+      height: 240
+    invert_colors: false
+    auto_clear_enabled: false
+
+############################
+# IMAGES
+############################
+image:
+  - file: "images/charger_unplugged.jpg"
+    id: img_unplugged
+    type: RGB565
+
+#  - file: "images/charger_plugged.jpg"
+#    id: img_plugged
+#    type: RGB565
+
+#  - file: "images/charger_charging.jpg"
+#    id: img_charging
+#    type: RGB565
+
+############################
+# BINARY SENSORS (MIROIR HA)
+############################
+binary_sensor:
+  - platform: homeassistant
+    id: charge_port_open
+    entity_id: binary_sensor.tesla_charge_port_open
+    on_state:
+      then:
+        - script.execute: update_charger_image
+
+  - platform: homeassistant
+    id: charger_on
+    entity_id: binary_sensor.tesla_charger
+    on_state:
+      then:
+        - script.execute: update_charger_image
+
+  - platform: homeassistant
+    id: ble_connection
+    entity_id: binary_sensor.tesla_ble_connection
+    on_state:
+      then:
+        - script.execute: update_charger_image
+
+############################
+# LVGL
+############################
+lvgl:
+  displays: my_display
+  buffer_size: 10%
+  log_level: WARN
+
+  pages:
+    - id: main_page
+      widgets:
+        - image:
+            id: charger_status_image
+            src: img_unplugged
+            align: CENTER
+            style:
+              alpha: 255  # pleine opacité par défaut
+
+        - label:
+            id: ble_status_label
+            text: "BLE not connected"
+            align: BOTTOM_CENTER
+            style:
+              text_font: "Arial_16"  # à adapter selon police disponible
+              text_color: 0xFF0000    # rouge
+              opacity: 0               # invisible par défaut
+
+############################
+# SCRIPT
+############################
+script:
+  - id: update_charger_image
+    mode: restart
+    then:
+      - lambda: |-
+          auto img = id(charger_status_image);
+          auto lbl = id(ble_status_label);
+
+          // Choix de l'image selon état port de charge
+          if (id(charge_port_open).state) {
+            if (id(charger_on).state) {
+              // img->set_src(&id(img_charging));
+            } else {
+              // img->set_src(&id(img_plugged));
+            }
+          } else {
+            img->set_src(&id(img_unplugged));
+          }
+
+          // Opacité et texte BLE
+          if (!id(ble_connection).state) {
+            img->set_alpha(128);   // 50% opacité
+            lbl->set_text("BLE not connected");
+            lbl->set_opacity(255); // texte visible
+          } else {
+            img->set_alpha(255);   // 100% opacité
+            lbl->set_opacity(0);   // texte caché
+          };
+
+          img->update();
+          lbl->update();
