@@ -1,0 +1,260 @@
+substitutions:
+  friendly_name: 4848s040
+  device_name: "guition-esp32-s3-4848s040"
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
+  name_add_mac_suffix: false
+  compile_process_limit: 2
+  libraries:
+    - TeslaBLE=https://github.com/PedroKTFC/tesla-ble.git
+  on_boot:
+    priority: -10
+    then:
+      - script.execute: screen_timeout_timer
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework:
+    type: esp-idf
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+web_server:
+  port: 80
+  version: 2
+
+logger:
+  level: DEBUG
+
+esp32_ble_tracker:
+  scan_parameters:
+    active: true
+
+external_components:
+  - source: github://PedroKTFC/esphome-tesla-ble
+
+packages:
+  base: github://PedroKTFC/esphome-tesla-ble/packages/base.yml
+  common: github://PedroKTFC/esphome-tesla-ble/packages/common.yml
+  project: github://PedroKTFC/esphome-tesla-ble/packages/project.yml
+  client: github://PedroKTFC/esphome-tesla-ble/packages/client.yml
+
+# --- CONFIGURATION TESLA ---
+tesla_ble_vehicle:
+  id: tesla_ble_vehicle_id
+  charge_state:
+    id: tesla_soc
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: charge_level_label
+            text: !lambda 'static char buf[10]; sprintf(buf, "%.0f %%", x); return buf;'
+        - lvgl.arc.update:
+            id: charge_level_arc
+            value: !lambda "return x;"
+
+# --- SURVEILLANCE DU STATUT BLE ---
+binary_sensor:
+  - platform: template
+    id: ble_status_display
+    # On surveille l'état du switch 'sw_ble_connection' injecté par le package client.yml
+    lambda: |-
+      return id(sw_ble_connection).state;
+    on_state:
+      then:
+        - lvgl.label.update:
+            id: ble_icon
+            text_color: !lambda "return x ? lv_color_hex(0x00FF00) : lv_color_hex(0xFF0000);"
+
+# --- GESTION ÉNERGIE ---
+number:
+  - platform: template
+    name: "Délai extinction écran"
+    id: screen_timeout_delay
+    unit_of_measurement: "s"
+    min_value: 5
+    max_value: 300
+    step: 5
+    initial_value: 60
+    optimistic: true
+    restore_value: true
+
+script:
+  - id: screen_timeout_timer
+    mode: restart
+    then:
+      - light.turn_on: display_backlight
+      - delay: !lambda "return id(screen_timeout_delay).state * 1000;"
+      - light.turn_off:
+          id: display_backlight
+          transition_length: 2s
+
+output:
+  - platform: ledc
+    id: backlight_output
+    pin: GPIO38
+    frequency: 150Hz
+
+light:
+  - platform: monochromatic
+    name: Backlight
+    id: display_backlight
+    output: backlight_output
+
+# --- MATÉRIEL ÉCRAN ---
+spi:
+  - id: lcd_spi
+    clk_pin: GPIO48
+    mosi_pin: GPIO47
+
+i2c:
+  id: touchscreen_bus
+  sda: GPIO19
+  scl:
+    number: 45
+    ignore_strapping_warning: true
+
+display:
+  - platform: st7701s
+    id: tft_display
+    dimensions:
+      width: 480
+      height: 480
+    spi_mode: MODE3
+    data_rate: 2MHz
+    color_order: RGB
+    invert_colors: False
+    cs_pin: 39
+    de_pin: 18
+    hsync_pin: 16
+    vsync_pin: 17
+    pclk_pin: 21
+    pclk_frequency: 12MHz
+    pclk_inverted: False
+    hsync_pulse_width: 8
+    hsync_front_porch: 10
+    hsync_back_porch: 20
+    vsync_pulse_width: 8
+    vsync_front_porch: 10
+    vsync_back_porch: 10
+    update_interval: never
+    auto_clear_enabled: False
+    init_sequence:
+      - 1
+      - [0xFF, 0x77, 0x01, 0x00, 0x00, 0x10]
+      - [0xCD, 0x00]
+    data_pins:
+      red: [11, 12, 13, 14, 0]
+      green: [8, 20, 3, 46, 9, 10]
+      blue: [4, 5, 6, 7, 15]
+
+touchscreen:
+  - platform: gt911
+    id: tft_touch
+    display: tft_display
+    on_touch:
+      - script.execute: screen_timeout_timer
+
+font:
+  - file: {type: gfonts, family: Roboto}
+    id: font_main
+    size: 20
+    # Correction: "F" inclus pour "WiFi" et caractères optimisés
+    glyphs: "0123456789% -.!WiFfBLEOPTXumk"
+
+image:
+  - file: "images/charger_unplugged.jpg"
+    id: img_unplugged
+    type: RGB565
+
+# --- CAPTEURS ---
+sensor:
+  - platform: wifi_signal
+    id: wifi_rssi
+    update_interval: 10s
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: wifi_icon
+            text_color: !lambda "return lv_color_hex(x > -70 ? 0x00FF00 : 0xFF0000);"
+
+# --- LVGL INTERFACE ---
+lvgl:
+  displays: tft_display
+  buffer_size: 10%
+  pages:
+    - id: main_page
+      widgets:
+        - obj: # BARRE DE STATUT
+            height: 50
+            width: 100%
+            align: TOP_MID
+            bg_color: 0x000000
+            bg_opa: 50%
+            widgets:
+              - button:
+                  width: 60
+                  height: 40
+                  align: LEFT_MID
+                  x: 10
+                  on_click: {then: [lvgl.page.show: settings_page]}
+                  widgets: [{label: {text: "OPT", text_font: font_main, align: CENTER}}]
+              - label: {id: wifi_icon, text: "WiFi", text_font: font_main, align: RIGHT_MID, x: -10}
+              - label: {id: ble_icon, text: "BLE", text_font: font_main, text_color: 0xFF0000, align: RIGHT_MID, x: -80}
+        - image: {src: img_unplugged, align: CENTER, y: 35, zoom: 0.5}
+        - arc:
+            id: charge_level_arc
+            align: CENTER
+            y: 35
+            width: 210
+            height: 210
+            start_angle: 210
+            end_angle: 330
+            arc_width: 8
+            arc_color: 0x333333
+            min_value: 0
+            max_value: 100
+            indicator: {line_color: 0x00AEEF, line_width: 8}
+        - label: {id: charge_level_label, align: CENTER, y: 120, text: "-- %", text_font: font_main}
+
+    - id: settings_page
+      widgets:
+        - obj:
+            width: 100%
+            height: 100%
+            bg_color: 0x1A1A1A
+            widgets:
+              - button:
+                  align: TOP_RIGHT
+                  x: -15
+                  y: 10
+                  width: 50
+                  height: 40
+                  bg_color: 0xE53935
+                  on_click: {then: [lvgl.page.show: main_page]}
+                  widgets: [{label: {text: "X", text_font: font_main, align: CENTER}}]
+              - label: {text: "Lum", align: TOP_LEFT, x: 30, y: 80, text_color: 0xFFFFFF, text_font: font_main}
+              - slider:
+                  align: TOP_MID
+                  y: 125
+                  width: 80%
+                  on_value:
+                    then:
+                      - light.control: {id: display_backlight, brightness: !lambda "return x / 100.0;"}
