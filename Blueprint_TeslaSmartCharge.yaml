@@ -18,6 +18,33 @@ blueprint:
         entity:
           domain: number
 
+    amp_min:
+      name: Intensite de charge mini
+      default: 5
+      selector:
+        number:
+          min: 5
+          max: 32
+          unit_of_measurement: "A"
+      
+    amp_max:
+        name: Intensite de charge max
+        default: 32
+        selector:
+          number:
+            min: 5
+            max: 32
+            unit_of_measurement: "A"
+        
+
+
+    tesla_voltage:
+      name: Voltage de charge (v)
+      default: sensor.tesla_charge_voltage
+      selector:
+        entity:
+          domain: number
+
     tesla_soc:
       name: Pourcentage batterie Tesla (%)
       default: sensor.tesla_charge_level
@@ -49,6 +76,16 @@ blueprint:
       selector:
         entity:
           domain: select
+
+    amp_min:
+      name: Intensite de charge mini
+      default: 5
+      selector:
+        number:
+          min: 5
+          max: 32
+          unit_of_measurement: "A"
+      
 
 mode: restart
 
