@@ -7,14 +7,14 @@ blueprint:
 
     tesla_switch:
       name: Switch de charge Tesla
-      default: tesla_charger
+      default: switch.tesla_charger
       selector:
         entity:
           domain: switch
 
     tesla_amperage:
       name: Intensité de charge (A)
-      default: tesla_charging_amps
+      default: number.tesla_charging_amps
       selector:
         entity:
           domain: number
@@ -63,7 +63,7 @@ blueprint:
 
     charge_mode:
       name: Mode de charge Tesla
-      default: tesla_mode_charge_tesla
+      default: select.tesla_mode_charge_tesla
       selector:
         entity:
           domain: select
