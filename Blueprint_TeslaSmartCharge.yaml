@@ -1,35 +1,40 @@
 blueprint:
   name: Optimisation Charge Tesla Photovoltaïque
-  description: Reproduction fidèle de l’automatisation v0.0.4
+  description: Blueprint fidèle à l'automatisation v0.0.5
   domain: automation
 
   input:
     net_consumption:
       name: Consommation nette du foyer (W)
+      default: sensor.consommation_nette_w
       selector:
         entity:
           domain: sensor
 
     tesla_switch:
       name: Switch charge Tesla
+      default: switch.tesla_charger
       selector:
         entity:
           domain: switch
 
     tesla_amperage:
       name: Intensité de charge Tesla
+      default: number.tesla_charging_amps
       selector:
         entity:
           domain: number
 
     tesla_soc:
-      name: SOC batterie Tesla
+      name: Niveau de charge Tesla (SOC)
+      default: sensor.tesla_charge_level
       selector:
         entity:
           domain: sensor
 
     charge_mode:
       name: Mode de charge Tesla
+      default: select.tesla_mode_charge_tesla
       selector:
         entity:
           domain: select
@@ -56,14 +61,12 @@ trigger:
     minutes: "/5"
 
 variables:
-  # entités issues des inputs
   net_entity: !input net_consumption
   switch_entity: !input tesla_switch
   amp_entity: !input tesla_amperage
   soc_entity: !input tesla_soc
   mode_entity: !input charge_mode
 
-  # valeurs calculées (IDENTIQUES à ton automation)
   mode: "{{ states(mode_entity) | string }}"
   net: "{{ states(net_entity) | float }}"
   soc: "{{ states(soc_entity) | float }}"
@@ -88,9 +91,7 @@ variables:
 
 action:
 
-  # ================================
   # MODE MANUEL
-  # ================================
   - choose:
       - conditions:
           - condition: template
@@ -98,9 +99,7 @@ action:
         sequence:
           - stop: "Mode manuel actif – aucune automatisation"
 
-  # ================================
   # MODE RADIN
-  # ================================
   - choose:
       - conditions:
           - condition: template
@@ -124,9 +123,7 @@ action:
             target:
               entity_id: !input tesla_switch
 
-  # ================================
   # MODE SMART SOLAIRE
-  # ================================
   - choose:
       - conditions:
           - condition: template
@@ -150,9 +147,7 @@ action:
             target:
               entity_id: !input tesla_switch
 
-  # ================================
   # MODE FORCE
-  # ================================
   - choose:
       - conditions:
           - condition: template
@@ -170,7 +165,7 @@ action:
                     target:
                       entity_id: !input tesla_switch
 
-          # voiture éteinte → démarrage sans changer l’intensité
+          # démarrage sans changer l’intensité
           - choose:
               - conditions:
                   - condition: state
@@ -181,7 +176,7 @@ action:
                     target:
                       entity_id: !input tesla_switch
 
-          # voiture déjà en charge → ajustement ±1A
+          # régulation ±1A
           - choose:
               - conditions:
                   - condition: state
