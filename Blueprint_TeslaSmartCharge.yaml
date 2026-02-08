@@ -1,6 +1,6 @@
 blueprint:
-  name: Optimisation Charge Tesla Photovoltaïque v0.0.5
-  description: Optimise la charge selon les panneaux solaires et le mode choisi, avec logs de débogage
+  name: Optimisation Charge Tesla Photovoltaïque v0.0.6
+  description: Optimise la charge selon les panneaux solaires et le mode choisi
   domain: automation
 
   input:
@@ -29,7 +29,7 @@ blueprint:
 
     net_consumption:
       name: Consommation nette du foyer (W)
-      default: sensor.net_consumption
+      default: sensor.consommation_nette_w
       selector:
         entity:
           domain: sensor
@@ -72,19 +72,19 @@ blueprint:
 mode: restart
 
 trigger:
-  # Déclenche sur changement de consommation
+  # Surproduction + conditions selon mode
   - platform: state
     entity_id: !input net_consumption
 
-  # Déclenche sur changement du switch
+  # Sécurité disjoncteur
   - platform: state
     entity_id: !input tesla_switch
 
-  # Déclenche toutes les 5 minutes
+  # Vérification périodique
   - platform: time_pattern
     minutes: "/5"
 
-  # Déclenche sur changement du mode de charge
+  # Changement de mode de charge
   - platform: state
     entity_id: !input charge_mode
 
@@ -93,14 +93,13 @@ variables:
   amp_entity: !input tesla_amperage
   min_power: !input tesla_min_power
   max_house: !input max_house_power
-  delay_sec: !input delay_off
+  delay_off_val: !input delay_off
 
 action:
-
   - variables:
-      mode: "{{ states(!input charge_mode) }}"
-      net: "{{ states(!input net_consumption) | float }}"
-      soc: "{{ states(!input tesla_soc) | float }}"
+      mode: "{{ states(input.charge_mode) }}"
+      net: "{{ states(input.net_consumption) | float }}"
+      soc: "{{ states(input.tesla_soc) | float }}"
       available_power: "{{ 0 - net }}"
       computed_amps: >-
         {% set watts = 0 - net %}
@@ -110,34 +109,28 @@ action:
         {% else %} {{ amp | round(0) }}
         {% endif %}
 
-  # Log debug
-  - service: logbook.log
-    data:
-      name: "Debug Tesla Charge"
-      message: >
-        Mode={{ mode }}, Net={{ net }}, SOC={{ soc }}, Computed Amps={{ computed_amps }}
-
   # ================================
   # BLINDAGE MODE MANUEL
   # ================================
   - if:
-      - "{{ mode == 'manuel' }}"
+      - condition: template
+        value_template: "{{ mode == 'manuel' }}"
     then:
-      - service: logbook.log
-        data:
-          name: "Debug Tesla Charge"
-          message: "Mode manuel actif – aucune automatisation appliquée"
-      - stop: "Mode manuel"
+      - stop: "Mode manuel actif – aucune automatisation"
 
+  # ================================
+  # AUTOMATISATIONS DES AUTRES MODES
+  # ================================
   - choose:
 
       ###############################################
-      # MODE 2 — RADIN
+      # MODE RADIN
       ###############################################
       - conditions: "{{ mode == 'radin' }}"
         sequence:
           - if:
-              - "{{ net <= (min_power * -1) }}"
+              - condition: template
+                value_template: "{{ net <= (min_power * -1) }}"
             then:
               - service: switch.turn_on
                 target:
@@ -148,26 +141,28 @@ action:
                 data:
                   value: 5
             else:
-              - delay: "{{ delay_sec }}"
+              - delay: "{{ delay_off_val }}"
               - service: switch.turn_off
                 target:
                   entity_id: "{{ switch_id }}"
 
       ###############################################
-      # MODE 3 — SMART SOLAIRE
+      # MODE SMART SOLAIRE
       ###############################################
       - conditions: "{{ mode == 'smart_solaire' }}"
         sequence:
           - variables:
               smart_threshold: "{{ (min_power * (soc/100)) * -1 }}"
           - if:
-              - "{{ net <= smart_threshold }}"
+              - condition: template
+                value_template: "{{ net <= smart_threshold }}"
             then:
               - service: switch.turn_on
                 target:
                   entity_id: "{{ switch_id }}"
               - if:
-                  - "{{ computed_amps >= 5 }}"
+                  - condition: template
+                    value_template: "{{ computed_amps >= 5 }}"
                 then:
                   - service: number.set_value
                     target:
@@ -175,18 +170,19 @@ action:
                     data:
                       value: "{{ computed_amps }}"
             else:
-              - delay: "{{ delay_sec }}"
+              - delay: "{{ delay_off_val }}"
               - service: switch.turn_off
                 target:
                   entity_id: "{{ switch_id }}"
 
       ###############################################
-      # MODE 4 — CHARGE FORCÉE
+      # MODE FORCE
       ###############################################
       - conditions: "{{ mode == 'force' }}"
         sequence:
           - if:
-              - "{{ (net * -1) + min_power <= max_house }}"
+              - condition: template
+                value_template: "{{ (net * -1) + min_power <= max_house }}"
             then:
               - service: switch.turn_on
                 target:
