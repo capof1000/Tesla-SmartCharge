@@ -1,198 +1,124 @@
 blueprint:
-  name: Optimisation Charge Tesla Photovoltaïque v0.0.5
-  description: Blueprint fidèle à l'automatisation
+  name: Optimisation Charge Tesla Photovoltaïque v0.0.6
+  description: >
+    Ajuste dynamiquement l’intensité de charge du véhicule en mode forcé
+    selon la consommation nette du foyer et le SOC batterie.
   domain: automation
 
   input:
-    net_consumption:
-      name: Consommation nette du foyer (W)
-      default: sensor.consommation_nette_w
+    mode_force:
+      name: Mode forcé
       selector:
         entity:
-          domain: sensor
+          domain: input_boolean
 
-    tesla_switch:
-      name: Switch charge Tesla
-      default: switch.tesla_charger
+    charging_switch:
+      name: Interrupteur de charge
       selector:
         entity:
           domain: switch
 
-    tesla_amperage:
-      name: Intensité de charge Tesla
-      default: number.tesla_charging_amps
+    charging_amp_number:
+      name: Intensité de charge (A)
       selector:
         entity:
           domain: number
 
-    tesla_soc:
-      name: Niveau de charge Tesla (SOC)
-      default: sensor.tesla_charge_level
+    conso_nette:
+      name: Consommation nette du foyer (W)
       selector:
         entity:
           domain: sensor
 
-    charge_mode:
-      name: Mode de charge Tesla
-      default: select.tesla_mode_charge_tesla
+    soc_batterie:
+      name: SOC batterie (%)
       selector:
         entity:
-          domain: select
+          domain: sensor
 
-    max_house_power:
+    puissance_max_foyer:
       name: Puissance max du foyer (W)
-      default: 12000
+      selector:
+        entity:
+          domain: number
+
+    delay:
+      name: Temporisation entre ajustements
+      description: Evite les variations trop rapides
+      default: 30
       selector:
         number:
-          min: 3000
-          max: 36000
-          unit_of_measurement: W
+          min: 5
+          max: 300
+          unit_of_measurement: "s"
+
+    amp_min:
+      name: Intensité de charge mini
+      default: 5
+      selector:
+        number:
+          min: 5
+          max: 32
+          unit_of_measurement: "A"
+
+    amp_max:
+      name: Intensité de charge max
+      default: 32
+      selector:
+        number:
+          min: 5
+          max: 32
+          unit_of_measurement: "A"
 
 mode: restart
 
 trigger:
-  - platform: state
-    entity_id: !input net_consumption
-  - platform: state
-    entity_id: !input tesla_switch
-  - platform: state
-    entity_id: !input charge_mode
   - platform: time_pattern
-    minutes: "/5"
+    seconds: "/10"
 
 variables:
-  net_entity: !input net_consumption
-  switch_entity: !input tesla_switch
-  amp_entity: !input tesla_amperage
-  soc_entity: !input tesla_soc
-  mode_entity: !input charge_mode
+  current_amp: "{{ states(input.charging_amp_number) | int }}"
+  conso: "{{ states(input.conso_nette) | int }}"
+  soc: "{{ states(input.soc_batterie) | int }}"
+  pmax: "{{ states(input.puissance_max_foyer) | int }}"
+  amp_min: "{{ input.amp_min | int }}"
+  amp_max: "{{ input.amp_max | int }}"
 
-  mode: "{{ states(mode_entity) | string }}"
-  net: "{{ states(net_entity) | float }}"
-  soc: "{{ states(soc_entity) | float }}"
-
-  min_power: 1100
-  max_house: !input max_house_power
-
-  available_power: "{{ -net }}"
-
-  computed_amps: >-
-    {% set watts = available_power %}
-    {% set amp = watts / (min_power / 5) %}
-    {% if amp < 5 %}
-      0
-    {% elif amp > 32 %}
-      32
-    {% else %}
-      {{ amp | round(0) }}
-    {% endif %}
-
-  smart_threshold: "{{ -(min_power * (soc / 100)) }}"
+condition:
+  - condition: state
+    entity_id: !input mode_force
+    state: "on"
 
 action:
-
-  # MODE MANUEL
   - choose:
+
+      # 🔽 Diminuer l’intensité
       - conditions:
           - condition: template
-            value_template: "{{ mode == 'manuel' }}"
+            value_template: >
+              {{ conso > pmax and soc > 5 and current_amp > amp_min }}
         sequence:
-          - stop: "Mode manuel actif – aucune automatisation"
-
-  # MODE RADIN
-  - choose:
-      - conditions:
-          - condition: template
-            value_template: "{{ mode == 'radin' }}"
-        sequence:
-          - choose:
-              - conditions:
-                  - condition: template
-                    value_template: "{{ net <= -min_power }}"
-                sequence:
-                  - service: switch.turn_on
-                    target:
-                      entity_id: !input tesla_switch
-                  - service: number.set_value
-                    target:
-                      entity_id: !input tesla_amperage
-                    data:
-                      value: 5
-          - delay: 120
-          - service: switch.turn_off
+          - service: number.set_value
             target:
-              entity_id: !input tesla_switch
+              entity_id: !input charging_amp_number
+            data:
+              value: "{{ current_amp - 1 }}"
+          - delay:
+              seconds: !input delay
 
-  # MODE SMART SOLAIRE
-  - choose:
+      # 🔼 Augmenter l’intensité
       - conditions:
           - condition: template
-            value_template: "{{ mode == 'smart_solaire' }}"
+            value_template: >
+              {{ conso < pmax and soc < 32 and current_amp < amp_max }}
         sequence:
-          - choose:
-              - conditions:
-                  - condition: template
-                    value_template: "{{ net <= smart_threshold and computed_amps >= 5 }}"
-                sequence:
-                  - service: switch.turn_on
-                    target:
-                      entity_id: !input tesla_switch
-                  - service: number.set_value
-                    target:
-                      entity_id: !input tesla_amperage
-                    data:
-                      value: "{{ computed_amps }}"
-          - delay: 120
-          - service: switch.turn_off
+          - service: number.set_value
             target:
-              entity_id: !input tesla_switch
+              entity_id: !input charging_amp_number
+            data:
+              value: "{{ current_amp + 1 }}"
+          - delay:
+              seconds: !input delay
 
-  # MODE FORCE
-  - choose:
-      - conditions:
-          - condition: template
-            value_template: "{{ mode == 'force' }}"
-        sequence:
+    default: []
 
-          # SOC = 100% → arrêt
-          - choose:
-              - conditions:
-                  - condition: numeric_state
-                    entity_id: !input tesla_soc
-                    above: 99.9
-                sequence:
-                  - service: switch.turn_off
-                    target:
-                      entity_id: !input tesla_switch
-
-          # démarrage sans changer l’intensité
-          - choose:
-              - conditions:
-                  - condition: state
-                    entity_id: !input tesla_switch
-                    state: "off"
-                sequence:
-                  - service: switch.turn_on
-                    target:
-                      entity_id: !input tesla_switch
-
-          # régulation ±1A
-          - choose:
-              - conditions:
-                  - condition: state
-                    entity_id: !input tesla_switch
-                    state: "on"
-                sequence:
-                  - service: number.set_value
-                    target:
-                      entity_id: !input tesla_amperage
-                    data:
-                      value: >-
-                        {% set current_amp = states(amp_entity) | int %}
-                        {% if net > max_house and soc > 5 %}
-                          {{ current_amp - 1 }}
-                        {% elif net < max_house and soc < 32 %}
-                          {{ current_amp + 1 }}
-                        {% else %}
-                          {{ current_amp }}
-                        {% endif %}
