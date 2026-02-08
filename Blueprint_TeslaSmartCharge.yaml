@@ -1,10 +1,10 @@
 blueprint:
-  name: Optimisation Charge Tesla Photovoltaïque v0.0.8
+  name: Optimisation Charge Tesla Photovoltaïque
   description: Optimise la charge selon les panneaux solaires et le mode choisi
   domain: automation
+  version: 0.0.9
 
   input:
-
     tesla_switch:
       name: Switch de charge Tesla
       default: switch.tesla_charger
@@ -29,7 +29,7 @@ blueprint:
 
     net_consumption:
       name: Consommation nette du foyer (W)
-      default: sensor.net_consumption
+      default: sensor.consommation_nette_w
       selector:
         entity:
           domain: sensor
@@ -72,36 +72,27 @@ blueprint:
 mode: restart
 
 trigger:
-  # Surproduction + conditions selon mode
   - platform: state
     entity_id: !input net_consumption
 
-  # Sécurité disjoncteur
   - platform: state
     entity_id: !input tesla_switch
 
-  # Changement de mode de charge
   - platform: state
     entity_id: !input charge_mode
 
-  # Sécurité de recalcul toutes les 5 minutes
   - platform: time_pattern
     minutes: "/5"
 
 variables:
-  switch_id: !input tesla_switch
-  amp_entity: !input tesla_amperage
-  net_entity: !input net_consumption
-  soc_entity: !input tesla_soc
-  mode_entity: !input charge_mode
+  mode: "{{ states(!input charge_mode) }}"
+  net: "{{ states(!input net_consumption) | float }}"
+  soc: "{{ states(!input tesla_soc) | float }}"
   min_power: !input tesla_min_power
   max_house: !input max_house_power
-  delay_sec: !input delay_off
+  switch_id: !input tesla_switch
+  amp_entity: !input tesla_amperage
 
-  # Valeurs calculées
-  net: "{{ states(net_entity) | float }}"
-  soc: "{{ states(soc_entity) | float }}"
-  mode: "{{ states(mode_entity) }}"
   available_power: "{{ 0 - net }}"
   computed_amps: >-
     {% set watts = available_power %}
@@ -116,92 +107,91 @@ action:
   # ================================
   # BLINDAGE MODE MANUEL
   # ================================
-  - if:
-      - condition: template
-        value: "{{ mode == 'manuel' }}"
-    then:
-      - stop: "Mode manuel actif – aucune automatisation"
-
   - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ mode == 'manuel' }}"
+        sequence:
+          - stop: "Mode manuel actif – aucune automatisation"
 
-      ###############################################
+  # ================================
+  # AUTRES MODES
+  # ================================
+  - choose:
       # MODE RADIN
-      ###############################################
       - conditions:
           - condition: template
-            value: "{{ mode == 'radin' }}"
+            value_template: "{{ mode == 'radin' }}"
         sequence:
-          - if:
-              - condition: numeric_state
-                entity_id: "{{ net_entity }}"
-                below: "{{ min_power * -1 }}"
-            then:
-              - service: switch.turn_on
-                target:
-                  entity_id: "{{ switch_id }}"
-              - service: number.set_value
-                target:
-                  entity_id: "{{ amp_entity }}"
-                data:
-                  value: 5
-            else:
-              - delay: "{{ delay_sec }}"
-              - service: switch.turn_off
-                target:
-                  entity_id: "{{ switch_id }}"
-
-      ###############################################
-      # MODE SMART SOLAIRE
-      ###############################################
-      - conditions:
-          - condition: template
-            value: "{{ mode == 'smart_solaire' }}"
-        sequence:
-          - variables:
-              smart_threshold: "{{ (min_power * (soc/100)) * -1 }}"
-          - if:
-              - condition: numeric_state
-                entity_id: "{{ net_entity }}"
-                below: "{{ smart_threshold }}"
-            then:
-              - service: switch.turn_on
-                target:
-                  entity_id: "{{ switch_id }}"
-              - if:
+          - choose:
+              - conditions:
                   - condition: template
-                    value: "{{ computed_amps >= 5 }}"
-                then:
+                    value_template: "{{ net <= (min_power * -1) }}"
+                sequence:
+                  - service: switch.turn_on
+                    target:
+                      entity_id: "{{ switch_id }}"
                   - service: number.set_value
                     target:
                       entity_id: "{{ amp_entity }}"
                     data:
-                      value: "{{ computed_amps }}"
-            else:
-              - delay: "{{ delay_sec }}"
-              - service: switch.turn_off
-                target:
-                  entity_id: "{{ switch_id }}"
+                      value: 5
+              - default:
+                  - delay: "{{ !input delay_off }}"
+                  - service: switch.turn_off
+                    target:
+                      entity_id: "{{ switch_id }}"
 
-      ###############################################
-      # MODE FORCE
-      ###############################################
+      # MODE SMART SOLAIRE
       - conditions:
           - condition: template
-            value: "{{ mode == 'force' }}"
+            value_template: "{{ mode == 'smart_solaire' }}"
         sequence:
-          - if:
-              - condition: template
-                value: "{{ (net * -1) + min_power <= max_house }}"
-            then:
-              - service: switch.turn_on
-                target:
-                  entity_id: "{{ switch_id }}"
-              - service: number.set_value
-                target:
-                  entity_id: "{{ amp_entity }}"
-                data:
-                  value: 32
-            else:
-              - service: switch.turn_off
-                target:
-                  entity_id: "{{ switch_id }}"
+          - variables:
+              smart_threshold: "{{ (min_power * (soc/100)) * -1 }}"
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ net <= smart_threshold }}"
+                sequence:
+                  - service: switch.turn_on
+                    target:
+                      entity_id: "{{ switch_id }}"
+                  - choose:
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ computed_amps >= 5 }}"
+                        sequence:
+                          - service: number.set_value
+                            target:
+                              entity_id: "{{ amp_entity }}"
+                            data:
+                              value: "{{ computed_amps }}"
+              - default:
+                  - delay: "{{ !input delay_off }}"
+                  - service: switch.turn_off
+                    target:
+                      entity_id: "{{ switch_id }}"
+
+      # MODE FORCE
+      - conditions:
+          - condition: template
+            value_template: "{{ mode == 'force' }}"
+        sequence:
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ (net * -1) + min_power <= max_house }}"
+                sequence:
+                  - service: switch.turn_on
+                    target:
+                      entity_id: "{{ switch_id }}"
+                  - service: number.set_value
+                    target:
+                      entity_id: "{{ amp_entity }}"
+                    data:
+                      value: 32
+              - default:
+                  - service: switch.turn_off
+                    target:
+                      entity_id: "{{ switch_id }}"
