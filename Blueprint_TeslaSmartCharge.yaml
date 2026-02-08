@@ -66,6 +66,16 @@ blueprint:
           max: 36000
           unit_of_measurement: W
 
+    
+    delay_force:
+      name: Temporisation régulation mode force
+      default: 10
+      selector:
+        number:
+          min: 5
+          max: 60
+          unit_of_measurement: "s"
+
 mode: restart
 
 trigger:
