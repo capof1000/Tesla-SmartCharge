@@ -1,5 +1,5 @@
 blueprint:
-  name: Optimisation Charge Tesla Photovoltaïque v0.0.1
+  name: Optimisation Charge Tesla Photovoltaïque v0.0.2
   description: Optimise la charge selon les panneaux solaires et le mode choisi
   domain: automation
 
@@ -117,10 +117,9 @@ action:
           - stop: "Mode manuel actif – aucune automatisation"
 
   # ================================
-  # AUTRES MODES
+  # MODE RADIN
   # ================================
   - choose:
-      # MODE RADIN
       - conditions:
           - condition: template
             value_template: "{{ mode == 'radin' }}"
@@ -138,13 +137,15 @@ action:
                       entity_id: "{{ amp_entity }}"
                     data:
                       value: 5
-              - default:
-                  - delay: !input delay_off
-                  - service: switch.turn_off
-                    target:
-                      entity_id: "{{ switch_id }}"
+          - delay: !input delay_off
+          - service: switch.turn_off
+            target:
+              entity_id: "{{ switch_id }}"
 
-      # MODE SMART SOLAIRE
+  # ================================
+  # MODE SMART SOLAIRE
+  # ================================
+  - choose:
       - conditions:
           - condition: template
             value_template: "{{ mode == 'smart_solaire' }}"
@@ -154,28 +155,25 @@ action:
           - choose:
               - conditions:
                   - condition: template
-                    value_template: "{{ net <= smart_threshold }}"
+                    value_template: "{{ net <= smart_threshold and computed_amps >= 5 }}"
                 sequence:
                   - service: switch.turn_on
                     target:
                       entity_id: "{{ switch_id }}"
-                  - choose:
-                      - conditions:
-                          - condition: template
-                            value_template: "{{ computed_amps >= 5 }}"
-                        sequence:
-                          - service: number.set_value
-                            target:
-                              entity_id: "{{ amp_entity }}"
-                            data:
-                              value: "{{ computed_amps }}"
-              - default:
-                  - delay: !input delay_off
-                  - service: switch.turn_off
+                  - service: number.set_value
                     target:
-                      entity_id: "{{ switch_id }}"
+                      entity_id: "{{ amp_entity }}"
+                    data:
+                      value: "{{ computed_amps }}"
+          - delay: !input delay_off
+          - service: switch.turn_off
+            target:
+              entity_id: "{{ switch_id }}"
 
-      # MODE FORCE
+  # ================================
+  # MODE FORCE
+  # ================================
+  - choose:
       - conditions:
           - condition: template
             value_template: "{{ mode == 'force' }}"
@@ -193,7 +191,6 @@ action:
                       entity_id: "{{ amp_entity }}"
                     data:
                       value: 32
-              - default:
-                  - service: switch.turn_off
-                    target:
-                      entity_id: "{{ switch_id }}"
+          - service: switch.turn_off
+            target:
+              entity_id: "{{ switch_id }}"
