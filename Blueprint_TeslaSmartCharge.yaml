@@ -1,8 +1,8 @@
 blueprint:
-  name: Optimisation Charge Tesla Photovoltaïque
+  name: Optimisation Charge Tesla Photovoltaïque v0.0.9
   description: Optimise la charge selon les panneaux solaires et le mode choisi
   domain: automation
-  version: 0.0.9
+  
 
   input:
     tesla_switch:
