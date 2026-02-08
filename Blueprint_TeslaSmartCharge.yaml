@@ -1,6 +1,6 @@
 blueprint:
-  name: Optimisation Charge Tesla Photovoltaïque v0.0.7
-  description: Blueprint fidèle à l'automatisation v0.0.7
+  name: Optimisation Charge Tesla Photovoltaïque v0.0.8
+  description: Blueprint fidèle à l'automatisation v0.0.8
   domain: automation
 
   input:
@@ -181,46 +181,43 @@ action:
           - condition: template
             value_template: "{{ mode == 'force' }}"
         sequence:
+          # 1. Sécurité SOC 100%
+          - if:
+              - condition: numeric_state
+                entity_id: !input tesla_soc
+                above: 99.9
+            then:
+              - service: switch.turn_off
+                target:
+                  entity_id: !input tesla_switch
 
-          # SOC = 100% → arrêt
-          - choose:
-              - conditions:
-                  - condition: numeric_state
-                    entity_id: !input tesla_soc
-                    above: 99.9
-                sequence:
-                  - service: switch.turn_off
-                    target:
-                      entity_id: !input tesla_switch
+          # 2. Allumage si nécessaire
+          - if:
+              - condition: state
+                entity_id: !input tesla_switch
+                state: "off"
+            then:
+              - service: switch.turn_on
+                target:
+                  entity_id: !input tesla_switch
 
-          # démarrage sans changer l’intensité
-          - choose:
-              - conditions:
-                  - condition: state
-                    entity_id: !input tesla_switch
-                    state: "off"
-                sequence:
-                  - service: switch.turn_on
-                    target:
-                      entity_id: !input tesla_switch
-
-          # régulation ±1A
-          - choose:
-              - conditions:
-                  - condition: state
-                    entity_id: !input tesla_switch
-                    state: "on"
-                sequence:
-                  - service: number.set_value
-                    target:
-                      entity_id: !input tesla_amperage
-                    data:
-                      value: >-
-                        {% set current_amp = states(amp_entity) | int %}
-                        {% if net > max_house and soc > 5 %}
-                          {{ current_amp - 1 }}
-                        {% elif net < max_house and soc < 32 %}
-                          {{ current_amp + 1 }}
-                        {% else %}
-                          {{ current_amp }}
-                        {% endif %}
+          # 3. Régulation de l'intensité (±1A)
+          - service: number.set_value
+            target:
+              entity_id: !input tesla_amperage
+            data:
+              value: >-
+                {% set current_amp = states(amp_entity) | int(5) %}
+                {% set max_allowed = 32 %} {# Ou !input amp_max si tu veux l'utiliser #}
+                
+                {# Si on dépasse la puissance max de la maison, on baisse d'urgence #}
+                {% if net > max_house %}
+                  {{ [current_amp - 1, 5] | max }}
+                
+                {# Si on a de la marge (ex: au moins 1500W de dispo), on monte #}
+                {% elif (max_house - net) > 1500 %}
+                  {{ [current_amp + 1, max_allowed] | min }}
+                
+                {% else %}
+                  {{ current_amp }}
+                {% endif %}
