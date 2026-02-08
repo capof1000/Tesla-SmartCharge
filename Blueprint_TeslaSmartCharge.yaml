@@ -1,6 +1,6 @@
 blueprint:
-  name: Optimisation Charge Tesla Photovoltaïque v0.0.4-debug
-  description: Optimise la charge selon les panneaux solaires et le mode choisi
+  name: Optimisation Charge Tesla Photovoltaïque v0.0.5
+  description: Optimise la charge selon les panneaux solaires et le mode choisi, avec logs de débogage
   domain: automation
 
   input:
@@ -72,35 +72,50 @@ blueprint:
 mode: restart
 
 trigger:
+  # Déclenche sur changement de consommation
   - platform: state
     entity_id: !input net_consumption
 
+  # Déclenche sur changement du switch
   - platform: state
     entity_id: !input tesla_switch
 
+  # Déclenche toutes les 5 minutes
   - platform: time_pattern
     minutes: "/5"
-    id: periodic_check
+
+  # Déclenche sur changement du mode de charge
+  - platform: state
+    entity_id: !input charge_mode
 
 variables:
-  mode: "{{ states('!input charge_mode') }}"
-  net: "{{ states('!input net_consumption') | float }}"
-  soc: "{{ states('!input tesla_soc') | float }}"
-  min_power: !input tesla_min_power
-  max_house: !input max_house_power
   switch_id: !input tesla_switch
   amp_entity: !input tesla_amperage
-
-  available_power: "{{ 0 - net }}"
-  computed_amps: >-
-    {% set watts = available_power %}
-    {% set amp = (watts / (min_power/5)) | float %}
-    {% if amp < 5 %} 0
-    {% elif amp > 32 %} 32
-    {% else %} {{ amp | round(0) }}
-    {% endif %}
+  min_power: !input tesla_min_power
+  max_house: !input max_house_power
+  delay_sec: !input delay_off
 
 action:
+
+  - variables:
+      mode: "{{ states(!input charge_mode) }}"
+      net: "{{ states(!input net_consumption) | float }}"
+      soc: "{{ states(!input tesla_soc) | float }}"
+      available_power: "{{ 0 - net }}"
+      computed_amps: >-
+        {% set watts = 0 - net %}
+        {% set amp = (watts / (min_power/5)) | float %}
+        {% if amp < 5 %} 0
+        {% elif amp > 32 %} 32
+        {% else %} {{ amp | round(0) }}
+        {% endif %}
+
+  # Log debug
+  - service: logbook.log
+    data:
+      name: "Debug Tesla Charge"
+      message: >
+        Mode={{ mode }}, Net={{ net }}, SOC={{ soc }}, Computed Amps={{ computed_amps }}
 
   # ================================
   # BLINDAGE MODE MANUEL
@@ -108,7 +123,11 @@ action:
   - if:
       - "{{ mode == 'manuel' }}"
     then:
-      - stop: "Mode manuel actif – aucune automatisation"
+      - service: logbook.log
+        data:
+          name: "Debug Tesla Charge"
+          message: "Mode manuel actif – aucune automatisation appliquée"
+      - stop: "Mode manuel"
 
   - choose:
 
@@ -129,7 +148,7 @@ action:
                 data:
                   value: 5
             else:
-              - delay: !input delay_off
+              - delay: "{{ delay_sec }}"
               - service: switch.turn_off
                 target:
                   entity_id: "{{ switch_id }}"
@@ -156,7 +175,7 @@ action:
                     data:
                       value: "{{ computed_amps }}"
             else:
-              - delay: !input delay_off
+              - delay: "{{ delay_sec }}"
               - service: switch.turn_off
                 target:
                   entity_id: "{{ switch_id }}"
