@@ -1,8 +1,7 @@
 blueprint:
-  name: Optimisation Charge Tesla Photovoltaïque v0.0.9
+  name: Optimisation Charge Tesla Photovoltaïque v0.0.1
   description: Optimise la charge selon les panneaux solaires et le mode choisi
   domain: automation
-  
 
   input:
     tesla_switch:
@@ -85,21 +84,24 @@ trigger:
     minutes: "/5"
 
 variables:
-  mode: "{{ states(!input charge_mode) }}"
-  net: "{{ states(!input net_consumption) | float }}"
-  soc: "{{ states(!input tesla_soc) | float }}"
+  mode: "{{ states(input.charge_mode) | string }}"
+  net: "{{ states(input.net_consumption) | float }}"
+  soc: "{{ states(input.tesla_soc) | float }}"
   min_power: !input tesla_min_power
   max_house: !input max_house_power
   switch_id: !input tesla_switch
   amp_entity: !input tesla_amperage
 
-  available_power: "{{ 0 - net }}"
+  available_power: "{{ -net }}"
   computed_amps: >-
     {% set watts = available_power %}
-    {% set amp = (watts / (min_power/5)) | float %}
-    {% if amp < 5 %} 0
-    {% elif amp > 32 %} 32
-    {% else %} {{ amp | round(0) }}
+    {% set amp = watts / (min_power / 5) %}
+    {% if amp < 5 %}
+      0
+    {% elif amp > 32 %}
+      32
+    {% else %}
+      {{ amp | round(0) }}
     {% endif %}
 
 action:
@@ -126,7 +128,7 @@ action:
           - choose:
               - conditions:
                   - condition: template
-                    value_template: "{{ net <= (min_power * -1) }}"
+                    value_template: "{{ net <= -min_power }}"
                 sequence:
                   - service: switch.turn_on
                     target:
@@ -137,7 +139,7 @@ action:
                     data:
                       value: 5
               - default:
-                  - delay: "{{ !input delay_off }}"
+                  - delay: !input delay_off
                   - service: switch.turn_off
                     target:
                       entity_id: "{{ switch_id }}"
@@ -148,7 +150,7 @@ action:
             value_template: "{{ mode == 'smart_solaire' }}"
         sequence:
           - variables:
-              smart_threshold: "{{ (min_power * (soc/100)) * -1 }}"
+              smart_threshold: "{{ -(min_power * (soc / 100)) }}"
           - choose:
               - conditions:
                   - condition: template
@@ -168,7 +170,7 @@ action:
                             data:
                               value: "{{ computed_amps }}"
               - default:
-                  - delay: "{{ !input delay_off }}"
+                  - delay: !input delay_off
                   - service: switch.turn_off
                     target:
                       entity_id: "{{ switch_id }}"
@@ -181,7 +183,7 @@ action:
           - choose:
               - conditions:
                   - condition: template
-                    value_template: "{{ (net * -1) + min_power <= max_house }}"
+                    value_template: "{{ (-net) + min_power <= max_house }}"
                 sequence:
                   - service: switch.turn_on
                     target:
