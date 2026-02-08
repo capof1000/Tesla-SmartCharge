@@ -7,18 +7,21 @@ blueprint:
 
     tesla_switch:
       name: Switch de charge Tesla
+      default: tesla_charger
       selector:
         entity:
           domain: switch
 
     tesla_amperage:
       name: Intensité de charge (A)
+      default: tesla_charging_amps
       selector:
         entity:
           domain: number
 
     tesla_soc:
       name: Pourcentage batterie Tesla (%)
+      default: sensor.tesla_charge_level
       selector:
         entity:
           domain: sensor
@@ -59,32 +62,27 @@ blueprint:
           unit_of_measurement: "s"
 
     charge_mode:
-      name: Mode de charge
-      description: 1=Auto, 2=Radin, 3=Smart, 4=Force
+      name: Mode de charge Tesla
+      default: tesla_mode_charge_tesla
       selector:
-        number:
-          min: 1
-          max: 4
-          step: 1
+        entity:
+          domain: select
 
 mode: restart
 
 trigger:
-  # Surproduction + conditions selon mode
   - platform: state
     entity_id: !input net_consumption
 
-  # Sécurité disjoncteur
   - platform: state
     entity_id: !input tesla_switch
 
-  # Sécurité de recalcul
   - platform: time_pattern
     minutes: "/5"
     id: periodic_check
 
 variables:
-  mode: !input charge_mode
+  mode: "{{ states(input.charge_mode) }}"
   net: "{{ states( (input_net := input.net_consumption) ) | float }}"
   soc: "{{ states( (input_soc := input.tesla_soc) ) | float }}"
   min_power: !input tesla_min_power
@@ -92,8 +90,7 @@ variables:
   switch_id: !input tesla_switch
   amp_entity: !input tesla_amperage
 
-  # Calcul intensité max disponible
-  available_power: "{{ 0 - net }}"   # surproduction = négatif
+  available_power: "{{ 0 - net }}"
   computed_amps: >-
     {% set watts = available_power %}
     {% set amp = (watts / (min_power/5)) | float %}
@@ -104,38 +101,20 @@ variables:
 
 action:
 
+  # ================================
+  # BLINDAGE MODE MANUEL
+  # ================================
+  - if:
+      - "{{ mode == 'manuel' }}"
+    then:
+      - stop: "Mode manuel actif – aucune automatisation"
+
   - choose:
 
       ###############################################
-      # MODE 1 — AUTOCONSOMMATION
-      ###############################################
-      - conditions: "{{ mode == 1 }}"
-        sequence:
-          - if:
-              - "{{ net <= 0 }}"
-            then:
-              - service: switch.turn_on
-                target:
-                  entity_id: "{{ switch_id }}"
-              - if:
-                  - "{{ computed_amps >= 5 }}"
-                then:
-                  - service: number.set_value
-                    target:
-                      entity_id: "{{ amp_entity }}"
-                    data:
-                      value: "{{ computed_amps }}"
-            else:
-              - delay: "{{ states('!input delay_off') | int }}"
-              - service: switch.turn_off
-                target:
-                  entity_id: "{{ switch_id }}"
-
-      ###############################################
       # MODE 2 — RADIN
-      # Charge uniquement si net <= min_power
       ###############################################
-      - conditions: "{{ mode == 2 }}"
+      - conditions: "{{ mode == 'radin' }}"
         sequence:
           - if:
               - "{{ net <= (min_power * -1) }}"
@@ -155,10 +134,9 @@ action:
                   entity_id: "{{ switch_id }}"
 
       ###############################################
-      # MODE 3 — SMART
-      # Seuil = min_power * soc/100
+      # MODE 3 — SMART SOLAIRE
       ###############################################
-      - conditions: "{{ mode == 3 }}"
+      - conditions: "{{ mode == 'smart_solaire' }}"
         sequence:
           - variables:
               smart_threshold: "{{ (min_power * (soc/100)) * -1 }}"
@@ -185,7 +163,7 @@ action:
       ###############################################
       # MODE 4 — CHARGE FORCÉE
       ###############################################
-      - conditions: "{{ mode == 4 }}"
+      - conditions: "{{ mode == 'force' }}"
         sequence:
           - if:
               - "{{ (net * -1) + min_power <= max_house }}"
