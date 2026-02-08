@@ -1,48 +1,54 @@
 blueprint:
-  name: Optimisation Charge Tesla Photovoltaïque v0.0.6
-  description: >
-    Ajuste dynamiquement l’intensité de charge du véhicule en mode forcé
-    selon la consommation nette du foyer et le SOC batterie.
+  name: Optimisation Charge Tesla Photovoltaïque
+  description: Blueprint fidèle à l'automatisation v0.0.7
+  name: Optimisation Charge Tesla Photovoltaïque v0.0.7
+  description: Blueprint fidèle à l'automatisation
   domain: automation
 
   input:
-    mode_force:
-      name: Mode forcé
+    net_consumption:
+      name: Consommation nette du foyer (W)
+      default: sensor.consommation_nette_w
       selector:
         entity:
-          domain: input_boolean
+          domain: sensor
 
-    charging_switch:
-      name: Interrupteur de charge
+    tesla_switch:
+      name: Switch charge Tesla
+      default: switch.tesla_charger
       selector:
         entity:
           domain: switch
 
-    charging_amp_number:
-      name: Intensité de charge (A)
+    tesla_amperage:
+      name: Intensité de charge Tesla
+      default: number.tesla_charging_amps
       selector:
         entity:
           domain: number
 
-    conso_nette:
-      name: Consommation nette du foyer (W)
+    tesla_soc:
+      name: Niveau de charge Tesla (SOC)
+      default: sensor.tesla_charge_level
       selector:
         entity:
           domain: sensor
 
-    soc_batterie:
-      name: SOC batterie (%)
+    charge_mode:
+      name: Mode de charge Tesla
+      default: select.tesla_mode_charge_tesla
       selector:
         entity:
-          domain: sensor
+          domain: select
 
-    puissance_max_foyer:
+    max_house_power:
       name: Puissance max du foyer (W)
+      default: 12000
       selector:
-        entity:
-          domain: number
-
-    delay:
+        number:
+          min: 3000
+          max: 36000
+          unit_of_measurement: W    delay:
       name: Temporisation entre ajustements
       description: Evite les variations trop rapides
       default: 30
@@ -51,24 +57,6 @@ blueprint:
           min: 5
           max: 300
           unit_of_measurement: "s"
-
-    amp_min:
-      name: Intensité de charge mini
-      default: 5
-      selector:
-        number:
-          min: 5
-          max: 32
-          unit_of_measurement: "A"
-
-    amp_max:
-      name: Intensité de charge max
-      default: 32
-      selector:
-        number:
-          min: 5
-          max: 32
-          unit_of_measurement: "A"
 
 mode: restart
 
