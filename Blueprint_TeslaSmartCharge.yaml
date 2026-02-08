@@ -1,5 +1,5 @@
 blueprint:
-  name: Optimisation Charge Tesla Photovoltaïque v0.0.2
+  name: Optimisation Charge Tesla Photovoltaïque v0.0.3
   description: Optimise la charge selon les panneaux solaires et le mode choisi
   domain: automation
 
@@ -81,119 +81,8 @@ trigger:
     minutes: "/5"
 
 variables:
-  # ========= INPUTS =========
-  charge_mode_entity: !input charge_mode
-  net_entity: !input net_consumption
-  soc_entity: !input tesla_soc
   switch_id: !input tesla_switch
   amp_entity: !input tesla_amperage
-  min_power: !input tesla_min_power
-  max_house: !input max_house_power
-  delay_off: !input delay_off
-
-  # ========= STATES =========
-  mode: "{{ states(charge_mode_entity) }}"
-  net: "{{ states(net_entity) | float }}"
-  soc: "{{ states(soc_entity) | float }}"
-
-  # ========= CALCULS =========
-  available_power: "{{ 0 - net }}"
-  computed_amps: >-
-    {% set amp = available_power / (min_power / 5) %}
-    {% if amp < 5 %}
-      0
-    {% elif amp > 32 %}
-      32
-    {% else %}
-      {{ amp | round(0) }}
-    {% endif %}
-
-action:
-
-  # ================================
-  # BLINDAGE MODE MANUEL
-  # ================================
-  - if:
-      - condition: template
-        value_template: "{{ mode == 'manuel' }}"
-    then:
-      - stop: "Mode manuel actif – automatisation désactivée"
-
-  - choose:
-
-      ###############################################
-      # MODE RADIN
-      ###############################################
-      - conditions:
-          - condition: template
-            value_template: "{{ mode == 'radin' }}"
-        sequence:
-          - if:
-              - condition: template
-                value_template: "{{ net <= (min_power * -1) }}"
-            then:
-              - service: switch.turn_on
-                target:
-                  entity_id: "{{ switch_id }}"
-              - service: number.set_value
-                target:
-                  entity_id: "{{ amp_entity }}"
-                data:
-                  value: 5
-            else:
-              - delay:
-                  seconds: "{{ delay_off }}"
-              - service: switch.turn_off
-                target:
-                  entity_id: "{{ switch_id }}"
-
-      ###############################################
-      # MODE SMART SOLAIRE
-      ###############################################
-      - conditions:
-          - condition: template
-            value_template: "{{ mode == 'smart_solaire' }}"
-        sequence:
-          - variables:
-              smart_threshold: "{{ (min_power * (soc / 100)) * -1 }}"
-          - if:
-              - condition: template
-                value_template: "{{ net <= smart_threshold }}"
-            then:
-              - service: switch.turn_on
-                target:
-                  entity_id: "{{ switch_id }}"
-              - if:
-                  - condition: template
-                    value_template: "{{ computed_amps >= 5 }}"
-                then:
-                  - service: number.set_value
-                    target:
-                      entity_id: "{{ amp_entity }}"
-                    data:
-                      value: "{{ computed_amps }}"
-            else:
-              - delay:
-                  seconds: "{{ delay_off }}"
-              - service: switch.turn_off
-                target:
-                  entity_id: "{{ switch_id }}"
-
-      ###############################################
-      # MODE CHARGE FORCÉE
-      ###############################################
-      - conditions:
-          - condition: template
-            value_template: "{{ mode == 'force' }}"
-        sequence:
-          - if:
-              - condition: template
-                value_template: "{{ (net * -1) + min_power <= max_house }}"
-            then:
-              - service: switch.turn_on
-                target:
-                  entity_id: "{{ switch_id }}"
-              - service: number.set_value
-                target:
-                  entity_id: "{{ amp_entity }}"
-                data:
+  net_entity: !input net_consumption
+  soc_entity: !input tesla_soc
+  charge_mode_entity:
