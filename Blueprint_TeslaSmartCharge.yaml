@@ -1,5 +1,5 @@
 blueprint:
-  name: Optimisation Charge Tesla Photovoltaïque v0.0.7
+  name: Optimisation Charge Tesla Photovoltaïque v0.0.8
   description: Optimise la charge selon les panneaux solaires et le mode choisi
   domain: automation
 
@@ -7,18 +7,21 @@ blueprint:
 
     tesla_switch:
       name: Switch de charge Tesla
+      default: switch.tesla_charger
       selector:
         entity:
           domain: switch
 
     tesla_amperage:
       name: Intensité de charge (A)
+      default: number.tesla_charging_amps
       selector:
         entity:
           domain: number
 
     tesla_soc:
       name: Pourcentage batterie Tesla (%)
+      default: sensor.tesla_charge_level
       selector:
         entity:
           domain: sensor
@@ -26,6 +29,7 @@ blueprint:
 
     net_consumption:
       name: Consommation nette du foyer (W)
+      default: sensor.net_consumption
       selector:
         entity:
           domain: sensor
@@ -60,6 +64,7 @@ blueprint:
 
     charge_mode:
       name: Mode de charge Tesla
+      default: select.tesla_mode_charge_tesla
       selector:
         entity:
           domain: select
@@ -67,40 +72,40 @@ blueprint:
 mode: restart
 
 trigger:
-  # Mets bien le charge_mode dans les triggers pour qu’il réagisse aux changements aussi
+  # Surproduction + conditions selon mode
   - platform: state
     entity_id: !input net_consumption
 
+  # Sécurité disjoncteur
   - platform: state
     entity_id: !input tesla_switch
 
+  # Changement de mode de charge
   - platform: state
     entity_id: !input charge_mode
 
+  # Sécurité de recalcul toutes les 5 minutes
   - platform: time_pattern
     minutes: "/5"
-    id: periodic_check
 
 variables:
-  # Premièrement bind les inputs à des variables
-  charge_mode_entity: !input charge_mode
-  net_entity: !input net_consumption
-  soc_entity: !input tesla_soc
-
-  # Ensuite on peut utiliser ces variables dans les templates
-  mode: "{{ states(charge_mode_entity) }}"
-  net: "{{ states(net_entity) | float }}"
-  soc: "{{ states(soc_entity) | float }}"
-  min_power: !input tesla_min_power
-  max_house: !input max_house_power
   switch_id: !input tesla_switch
   amp_entity: !input tesla_amperage
+  net_entity: !input net_consumption
+  soc_entity: !input tesla_soc
+  mode_entity: !input charge_mode
+  min_power: !input tesla_min_power
+  max_house: !input max_house_power
+  delay_sec: !input delay_off
 
-  # calculs
+  # Valeurs calculées
+  net: "{{ states(net_entity) | float }}"
+  soc: "{{ states(soc_entity) | float }}"
+  mode: "{{ states(mode_entity) }}"
   available_power: "{{ 0 - net }}"
   computed_amps: >-
     {% set watts = available_power %}
-    {% set amp = (watts / (min_power / 5)) | float %}
+    {% set amp = (watts / (min_power/5)) | float %}
     {% if amp < 5 %} 0
     {% elif amp > 32 %} 32
     {% else %} {{ amp | round(0) }}
@@ -109,10 +114,11 @@ variables:
 action:
 
   # ================================
-  # MODE 1 — MANUEL => stop
+  # BLINDAGE MODE MANUEL
   # ================================
   - if:
-      - "{{ mode == 'manuel' }}"
+      - condition: template
+        value: "{{ mode == 'manuel' }}"
     then:
       - stop: "Mode manuel actif – aucune automatisation"
 
@@ -121,10 +127,14 @@ action:
       ###############################################
       # MODE RADIN
       ###############################################
-      - conditions: "{{ mode == 'radin' }}"
+      - conditions:
+          - condition: template
+            value: "{{ mode == 'radin' }}"
         sequence:
           - if:
-              - "{{ net <= (min_power * -1) }}"
+              - condition: numeric_state
+                entity_id: "{{ net_entity }}"
+                below: "{{ min_power * -1 }}"
             then:
               - service: switch.turn_on
                 target:
@@ -135,7 +145,7 @@ action:
                 data:
                   value: 5
             else:
-              - delay: "{{ delay_off }}"
+              - delay: "{{ delay_sec }}"
               - service: switch.turn_off
                 target:
                   entity_id: "{{ switch_id }}"
@@ -143,18 +153,23 @@ action:
       ###############################################
       # MODE SMART SOLAIRE
       ###############################################
-      - conditions: "{{ mode == 'smart_solaire' }}"
+      - conditions:
+          - condition: template
+            value: "{{ mode == 'smart_solaire' }}"
         sequence:
           - variables:
-              smart_threshold: "{{ (min_power * (soc / 100)) * -1 }}"
+              smart_threshold: "{{ (min_power * (soc/100)) * -1 }}"
           - if:
-              - "{{ net <= smart_threshold }}"
+              - condition: numeric_state
+                entity_id: "{{ net_entity }}"
+                below: "{{ smart_threshold }}"
             then:
               - service: switch.turn_on
                 target:
                   entity_id: "{{ switch_id }}"
               - if:
-                  - "{{ computed_amps >= 5 }}"
+                  - condition: template
+                    value: "{{ computed_amps >= 5 }}"
                 then:
                   - service: number.set_value
                     target:
@@ -162,7 +177,7 @@ action:
                     data:
                       value: "{{ computed_amps }}"
             else:
-              - delay: "{{ delay_off }}"
+              - delay: "{{ delay_sec }}"
               - service: switch.turn_off
                 target:
                   entity_id: "{{ switch_id }}"
@@ -170,10 +185,13 @@ action:
       ###############################################
       # MODE FORCE
       ###############################################
-      - conditions: "{{ mode == 'force' }}"
+      - conditions:
+          - condition: template
+            value: "{{ mode == 'force' }}"
         sequence:
           - if:
-              - "{{ (net * -1) + min_power <= max_house }}"
+              - condition: template
+                value: "{{ (net * -1) + min_power <= max_house }}"
             then:
               - service: switch.turn_on
                 target:
