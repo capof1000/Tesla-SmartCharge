@@ -1,5 +1,5 @@
 blueprint:
-  name: Optimisation Charge Tesla Photovoltaïque v0.0.9
+  name: Optimisation Charge Tesla Photovoltaïque v0.0.1
   description: Blueprint fidèle à l'automatisation
   domain: automation
 
