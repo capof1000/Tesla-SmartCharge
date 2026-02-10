@@ -6,6 +6,7 @@ blueprint:
   input:
     net_consumption:
       name: Consommation nette du foyer (W)
+      description: Entite qui va proposer le bilan net electrique du foyer, positif lors que l'on consomme de l'énergie, il devient negatif lorsque l'on sur-produit de l'éenergie et que l'on la renvoit sur le réseau.
       default: sensor.consommation_nette_w
       selector:
         entity:
@@ -13,6 +14,7 @@ blueprint:
 
     tesla_switch:
       name: Switch charge Tesla
+      description: Switch permettant d'allumer ou eteindre la charge de la voiture. (fourni par Tesla BLE)
       default: switch.tesla_charger
       selector:
         entity:
@@ -20,6 +22,7 @@ blueprint:
 
     tesla_amperage:
       name: Intensité de charge Tesla
+      description: Intensite en Ampère (fourni par Tesla BLE), il s'agit de la consigne de re charge. Peut-etre inferieur a l'amperage de charge réel.
       default: number.tesla_charging_amps
       selector:
         entity:
@@ -27,6 +30,7 @@ blueprint:
 
     amp_min:
       name: Intensite de charge mini
+      description: Intensite de charge minimal admissible, l'application Officielle ne permet pas de descendre sous 5A, on peut descendre legerement en dessous.
       default: 5
       selector:
         number:
@@ -36,6 +40,7 @@ blueprint:
       
     amp_max:
         name: Intensite de charge max
+        description: Intensite de charge maximale admissible, l'application Officielle limite la charge a 16A sur une prise standard, 32A sur une P17. Conserver ces reglages est largement recommande !
         default: 32
         selector:
           number:
@@ -46,12 +51,14 @@ blueprint:
     tesla_soc:
       name: Niveau de charge Tesla (SOC)
       default: sensor.tesla_charge_level
+      description: Il s'agit du pourcentage de charge de la batterie (fourni par Tesla BLE).
       selector:
         entity:
           domain: sensor
 
     charge_mode:
       name: Mode de charge Tesla
+      description: il s'agit d'un selecteur afin de choisir le mode de charge. (fourni par MA version de Tesla BLE/guition) :Manuel, Force ou smart_solaire.
       default: select.tesla_mode_charge_tesla
       selector:
         entity:
@@ -59,6 +66,7 @@ blueprint:
 
     max_house_power:
       name: Puissance max du foyer (W)
+      description: IL s'agit ici d'une consigne de consommation maximale a ne pas depasse en mode force, afin d'eviter de disjoncter lorsque d'autre gros consommateur sont en fonction (couplage AC). donc a adapter en fonction de votre abonnement Enedis. Par exemple une approximation, 12KVA -> 12000.
       default: 12000
       selector:
         number:
@@ -69,6 +77,7 @@ blueprint:
     
     delay_force:
       name: Temporisation régulation mode force
+      description: il s'agit du delay de temporisatin avant d'effectuer cetaines actions.
       default: 10
       selector:
         number:
