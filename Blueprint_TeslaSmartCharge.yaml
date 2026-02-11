@@ -1,5 +1,5 @@
 blueprint:
-  name: Optimisation Charge Tesla Photovoltaïque v0.0.2
+  name: Optimisation Charge Tesla Photovoltaïque v0.0.3
   description: Blueprint fidèle à l'automatisation
   domain: automation
 
@@ -103,6 +103,10 @@ variables:
   amp_entity: !input tesla_amperage
   soc_entity: !input tesla_soc
   mode_entity: !input charge_mode
+  min_allowed: !input amp_min
+  max_allowed: !input amp_max
+  delay_force_value: !input delay_force
+
 
   mode: "{{ states(mode_entity) | string }}"
   net: "{{ states(net_entity) | float }}"
@@ -211,8 +215,8 @@ action:
                   entity_id: !input tesla_switch
 
           # 3. Régulation de l'intensité (±1A)
-
-          - delay: !input delay_force
+          - delay:
+              seconds: "{{ delay_force_value }}"
 
           - service: number.set_value
             target:
@@ -220,17 +224,16 @@ action:
             data:
               value: >-
                 {% set current_amp = states(amp_entity) | int(5) %}
-                {% set min_allowed = amp_min | int %}
-                {% set max_allowed = amp_max | int %}
+                {% set min_amp = min_allowed | int %}
+                {% set max_amp = max_allowed | int %}
 
-                {# Si dépassement puissance maison et SOC > 5 → on baisse #}
                 {% if net > max_house and soc > 5 %}
-                  {{ [current_amp - 1, min_allowed] | max }}
+                  {{ [current_amp - 1, min_amp] | max }}
 
-                {# Si sous limite maison et SOC < 32 → on monte #}
-                {% elif net < max_house and soc < 32 %}
-                  {{ [current_amp + 1, max_allowed] | min }}
+                {% elif net < max_house and soc < max_amp %}
+                  {{ [current_amp + 1, max_amp] | min }}
 
                 {% else %}
                   {{ current_amp }}
                 {% endif %}
+
