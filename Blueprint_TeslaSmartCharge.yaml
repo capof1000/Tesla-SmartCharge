@@ -37,7 +37,7 @@ blueprint:
           domain: number
 
     tesla_voltage:
-      name: voltage de charge Tesla
+      name: Voltage de charge Tesla
       description: voltage pendant la charge (fourni par Tesla BLE).
       default: sensor.tesla_charge_voltage
       selector:
