@@ -43,7 +43,7 @@ blueprint:
       selector:
         entity:
           domain: number
-          unit_of_measurement: "V"
+          #unit_of_measurement: "V"
 
     amp_min:
       name: Intensite de charge mini
