@@ -21,7 +21,7 @@ blueprint:
           domain: switch
 
     tesla_amperage:
-      name:  de charge Tesla
+      name: Consigne de puissance
       description: Intensite en Ampère (fourni par Tesla BLE), il s'agit de la consigne de re charge. Peut-etre inferieur a l'amperage de charge réel.
       default: number.tesla_charging_amps
       selector:
