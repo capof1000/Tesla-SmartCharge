@@ -1,5 +1,5 @@
 blueprint:
-  name: Optimisation Charge Tesla Photovoltaïque v0.0.4
+  name: Optimisation Charge Tesla Photovoltaïque v0.0.5
   description: Blueprint fidèle à l'automatisation
   domain: automation
 
@@ -151,16 +151,16 @@ variables:
 
   available_power: "{{ -net }}"
 
-  computed_amps: >-
-    {% set watts = available_power %}
-    {% set amp = watts / (min_power / 5) %}
-    {% if amp < 5 %}
-      0
-    {% elif amp > 32 %}
-      32
-    {% else %}
-      {{ amp | round(0) }}
-    {% endif %}
+  #computed_amps: >-
+  #  {% set watts = available_power %}
+  #  {% set amp = watts / (min_power / 5) %}
+  #  {% if amp < 5 %}
+  #    0
+  #  {% elif amp > 32 %}
+  #    32
+  #  {% else %}
+  #    {{ amp | round(0) }}
+  #  {% endif %}
 
   current_voltage: >-
     {% set volts = states(tesla_voltage_charge) | int(220) %}
@@ -184,69 +184,77 @@ action:
         sequence:
           - stop: "Mode manuel actif – aucune automatisation"
 
-  # MODE RADIN
-  - choose:
-      - conditions:
-          - condition: template
-            value_template: "{{ mode == 'radin' }}"
-        sequence:
-          - choose:
-              - conditions:
-                  - condition: template
-                    value_template: "{{ net <= -min_power }}"
-                sequence:
-                  - service: switch.turn_on
-                    target:
-                      entity_id: !input tesla_switch
-                  - service: number.set_value
-                    target:
-                      entity_id: !input tesla_amperage
-                    data:
-                      value: 5
-          - delay: 120
-          - service: switch.turn_off
-            target:
-              entity_id: !input tesla_switch
-
   # MODE SMART SOLAIRE
   - choose:
     - conditions:
         - condition: template
           value_template: "{{ mode == 'smart_solaire' }}"
       sequence:
+        # Gestion du démarrage et arrêt de la charge
+        - choose:
+            # Start charge si conso nette < offset ET switch OFF
+            - conditions:
+                - condition: template
+                  value_template: "{{ net < offset }}"
+                - condition: state
+                  entity_id: !input tesla_switch
+                  state: "off"
+              sequence:
+                - delay:
+                    seconds: "{{ delay_tempo_value }}"
+                - service: switch.turn_on
+                  target:
+                    entity_id: !input tesla_switch
 
-        # Start charge si conso nette < offset ET switch OFF
-        - if:
-            - condition: template
-              value_template: "{{ net < offset }}"
-            - condition: state
-              entity_id: !input tesla_switch
-              state: "off"
-          then:
-            - service: switch.turn_on
-              target:
-                entity_id: !input tesla_switch
+            # Stop la charge si conso nette > conso de la tesla + offset
+            - conditions:
+                - condition: template
+                  value_template: "{{ net > ((current_charge * current_voltage) + offset ) }}"
+                - condition: state
+                  entity_id: !input tesla_switch
+                  state: "on"
+              sequence:
+                - delay:
+                    seconds: "{{ delay_tempo_value }}"
+                - service: switch.turn_off
+                  target:
+                    entity_id: !input tesla_switch
 
-        # Stop la charge si conso nette > consoe de la tesla + offset
-        - if:
-            - condition: template
-              value_template: "{{ net > ((current_charge *current_voltage) + offset ) }}"
-            - condition: state
-              entity_id: !input tesla_switch
-              state: "on"
-          then:
-            - service: switch.turn_off
-              target:
-                entity_id: !input tesla_switch
+            # on augmente la charge de 1A
+            - conditions:
+                - condition: template
+                  value_template: "{{ -(net) > (current_voltage) }}"
+                - condition: template
+                  value_template: "{{ states(amp_entity) | int  < max_allowed }}"
+                - condition: state
+                  entity_id: !input tesla_switch
+                  state: "on"
+              sequence:
+                - delay:
+                    seconds: "{{ delay_tempo_value }}"
+                - service: number.set_value
+                  target:
+                    entity_id: !input tesla_amperage
+                  data:
+                    value: "{{ [(states(amp_entity) | int) + 1, max_allowed] | min }}" 
 
-
-
-
-                
-  
-                
-
-      
+            # on diminue la charge de 1A
+            - conditions:
+                - condition: template
+                  value_template: "{{ (net) > (current_voltage) }}"
+                - condition: template
+                  value_template: "{{ states(amp_entity) | int > min_allowed }}"
+                - condition: state
+                  entity_id: !input tesla_switch
+                  state: "on"
+              sequence:
+                - delay:
+                    seconds: "{{ delay_tempo_value }}"
+                - service: number.set_value
+                  target:
+                    entity_id: !input tesla_amperage
+                  data:
+                    value: "{{ [(states(amp_entity) | int) - 1, min_allowed] | max }}"  
 
   # MODE FORCE
   - choose:
