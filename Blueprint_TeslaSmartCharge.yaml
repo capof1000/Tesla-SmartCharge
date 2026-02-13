@@ -304,17 +304,6 @@ action:
                   data:
                     message: "[Tesla Smart] ⬇️ Amperage diminué à {{ [(states(amp_entity) | int) - 1, min_allowed] | max }}A"
                     level: warning
-            
-            # Cas par défaut - aucune action
-            default:
-              - service: system_log.write
-                data:
-                  message: >
-                    [Tesla Smart] ⏸️ AUCUNE ACTION - Conditions non remplies
-                    Net: {{ net }}W, Surplus: {{ -(net) }}W, Voltage: {{ current_voltage }}W,
-                    Amp: {{ states(amp_entity) }}A (min: {{ min_allowed }}, max: {{ max_allowed }}),
-                    Switch: {{ states(switch_entity) }}
-                  level: info
   # MODE FORCE
   - choose:
       - conditions:
