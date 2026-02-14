@@ -1,6 +1,6 @@
 blueprint:
-  name: Optimisation Charge Tesla Photovoltaïque v0.0.6
-  description: Blueprint fidèle à l'automatisation
+  name: Optimisation Charge Tesla Photovoltaïque v0.0.7
+  description: Blueprint fidèle à l'automatisation. Clean up some variables
   domain: automation
 
   input:
@@ -128,28 +128,32 @@ trigger:
 
 variables:
   net_entity: !input net_consumption
+  net: "{{ states(net_entity) | float(0) }}"
+  #net: "{{ states(!input net_consumption) | float(0) }}"
   switch_entity: !input tesla_switch
   amp_entity: !input tesla_amperage
   soc_entity: !input tesla_soc
+  soc: "{{ states(soc_entity) | float(0) }}"
+  #soc: "{{ states(!input tesla_soc) | float(0) }}"
   mode_entity: !input charge_mode
+  #mode: "{{ states(mode_entity) | string }}"
+  mode: "{{ states(mode_entity) | default('manuel') }}"
+  #mode: "{{ states(!input charge_mode) | default('manuel') }}"
   min_allowed: !input amp_min
   max_allowed: !input amp_max
   tesla_voltage_charge: !input tesla_voltage
+  current_voltage: "{{ states(tesla_voltage_charge) | int(220) if 150 < states(tesla_voltage_charge) | int(220) < 260 else 220 }}"
   tesla_current_charge: !input tesla_current_amperage
+  current_charge: "{{ states(tesla_current_charge) | float(0) }}"
+  #current_charge: "{{ states(!input tesla_current_amperage) | float(0) }}"
   delay_tempo_value: !input delay_tempo
   offset: !input offset_start
-
-
-  mode: "{{ states(mode_entity) | string }}"
-  net: "{{ states(net_entity) | float }}"
-  soc: "{{ states(soc_entity) | float }}"
-
   
 
-  min_power: 1100
+  #min_power: 1100
   max_house: !input max_house_power
 
-  available_power: "{{ -net }}"
+  #available_power: "{{ -net }}"
 
   #computed_amps: >-
   #  {% set watts = available_power %}
@@ -162,17 +166,20 @@ variables:
   #    {{ amp | round(0) }}
   #  {% endif %}
 
-  current_voltage: >-
-    {% set volts = states(tesla_voltage_charge) | int(220) %}
-    {% if 150 < volts < 260 %}
-      {{ volts }}
-    {% else %}
-      220
-    {% endif %}
+  #current_voltage: >-
+  #  {% set volts = states(tesla_voltage_charge) | int(220) %}
+  #  {% if 150 < volts < 260 %}
+  #    {{ volts }}
+  #  {% else %}
+  #    220
+  #  {% endif %}
 
-  current_charge: "{{ states(tesla_current_charge) | float(0) }}"
+ 
+  #current_voltage: "{{ states(!input tesla_voltage) | int(220) if 150 < states(!input tesla_voltage) | int(220) < 260 else 220 }}"
+ 
+  
 
-  smart_threshold: "{{ -(min_power * (soc / 100)) }}"
+  #smart_threshold: "{{ -(min_power * (soc / 100)) }}"
 
 action:
 
@@ -225,6 +232,7 @@ action:
                     message: "[Tesla Smart] ✅ Charge démarrée"
                     level: warning
 
+            
             # Stop la charge si conso nette > conso de la tesla + offset
             - conditions:
                 - condition: template
