@@ -1,5 +1,5 @@
 blueprint:
-  name: Optimisation Charge Tesla Photovoltaïque v0.0.8
+  name: Optimisation Charge Tesla Photovoltaïque v0.0.9
   description: |
     Blueprint prevu pour fonctionner avec mon integration tesla BLE (guition)
     Clean up some variables.
@@ -192,160 +192,156 @@ variables:
   #smart_threshold: "{{ -(min_power * (soc / 100)) }}"
 
 action:
-  # --- PORTE 1 : ABSENCE ---
+  
   - choose:
+      # --- PORTE 1 : ABSENCE ---
       - conditions:
           - condition: template
             value_template: "{{ states(tesla_presence) != 'on' }}"
         sequence:
           - stop: "Tesla absente ou Bluetooth déconnecté."
 
-  # --- PORTE 2 : MODE MANUEL
-  - choose:
+      # --- PORTE 2 : MODE MANUEL
+      #- choose:
       - conditions:
           - condition: template
             value_template: "{{ mode == 'manuel' }}"
         sequence:
           - stop: "Mode manuel actif – aucune automatisation"
 
-  # --- PORTE 3 : MODE SMART SOLAIRE
-  - choose:
-    - conditions:
-        - condition: template
-          value_template: "{{ mode == 'smart_solaire' }}"
-      sequence:
-        # Debug : afficher les variables au début
-        - service: system_log.write
-          data:
-            message: >
-              [Tesla Smart] Variables - Mode: {{ mode }}, Net: {{ net }}W, Offset: {{ offset }}W, 
-              Voltage: {{ current_voltage }}V, Charge actuelle: {{ current_charge }}A, 
-              Amperage consigne: {{ states(amp_entity) }}A, Switch: {{ states(switch_entity) }}
-            level: info
-            
-        # Gestion du démarrage et arrêt de la charge
-        - choose:
-            # Start charge si conso nette < offset ET switch OFF
-            - conditions:
-                - condition: template
-                  value_template: "{{ net < offset }}"
-                - condition: state
-                  entity_id: !input tesla_switch
-                  state: "off"
-              sequence:
-                - service: system_log.write
-                  data:
-                    message: >
-                      [Tesla Smart] ✅ DÉMARRAGE - Net ({{ net }}W) < Offset ({{ offset }}W) 
-                      - Attente {{ delay_tempo_value }}s avant démarrage
-                    level: warning
-                - delay:
-                    seconds: "{{ delay_tempo_value }}"
-                - service: switch.turn_on
-                  target:
+      # --- PORTE 3 : MODE SMART SOLAIRE
+      #- choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ mode == 'smart_solaire' }}"
+        sequence:
+          # Debug : afficher les variables au début
+          - service: system_log.write
+            data:
+              message: >
+                [Tesla Smart] Variables - Mode: {{ mode }}, Net: {{ net }}W, Offset: {{ offset }}W, 
+                Voltage: {{ current_voltage }}V, Charge actuelle: {{ current_charge }}A, 
+                Amperage consigne: {{ states(amp_entity) }}A, Switch: {{ states(switch_entity) }}
+              level: info
+              
+          # Gestion du démarrage et arrêt de la charge
+          - choose:
+              # Start charge si conso nette < offset ET switch OFF
+              - conditions:
+                  - condition: template
+                    value_template: "{{ net < offset }}"
+                  - condition: state
                     entity_id: !input tesla_switch
-                - service: system_log.write
-                  data:
-                    message: "[Tesla Smart] ✅ Charge démarrée"
-                    level: warning
+                    state: "off"
+                sequence:
+                  - service: system_log.write
+                    data:
+                      message: >
+                        [Tesla Smart] ✅ DÉMARRAGE - Net ({{ net }}W) < Offset ({{ offset }}W) 
+                        - Attente {{ delay_tempo_value }}s avant démarrage
+                      level: warning
+                  - delay:
+                      seconds: "{{ delay_tempo_value }}"
+                  - service: switch.turn_on
+                    target:
+                      entity_id: !input tesla_switch
+                  - service: system_log.write
+                    data:
+                      message: "[Tesla Smart] ✅ Charge démarrée"
+                      level: warning
 
-            
-            # Stop la charge si conso nette > conso de la tesla + offset
-            - conditions:
-                - condition: template
-                  value_template: "{{ net > ((current_charge * current_voltage) + offset ) }}"
-                - condition: state
-                  entity_id: !input tesla_switch
-                  state: "on"
-              sequence:
-                - service: system_log.write
-                  data:
-                    message: >
-                      [Tesla Smart] ⛔ ARRÊT - Net ({{ net }}W) > Conso Tesla ({{ (current_charge * current_voltage) }}W) + Offset ({{ offset }}W) 
-                      = Seuil: {{ (current_charge * current_voltage) + offset }}W - Attente {{ delay_tempo_value }}s
-                    level: warning
-                - delay:
-                    seconds: "{{ delay_tempo_value }}"
-                - service: switch.turn_off
-                  target:
+              
+              # Stop la charge si conso nette > conso de la tesla + offset
+              - conditions:
+                  - condition: template
+                    value_template: "{{ net > ((current_charge * current_voltage) + offset ) }}"
+                  - condition: state
                     entity_id: !input tesla_switch
-                - service: system_log.write
-                  data:
-                    message: "[Tesla Smart] ⛔ Charge arrêtée"
-                    level: warning
+                    state: "on"
+                sequence:
+                  - service: system_log.write
+                    data:
+                      message: >
+                        [Tesla Smart] ⛔ ARRÊT - Net ({{ net }}W) > Conso Tesla ({{ (current_charge * current_voltage) }}W) + Offset ({{ offset }}W) 
+                        = Seuil: {{ (current_charge * current_voltage) + offset }}W - Attente {{ delay_tempo_value }}s
+                      level: warning
+                  - delay:
+                      seconds: "{{ delay_tempo_value }}"
+                  - service: switch.turn_off
+                    target:
+                      entity_id: !input tesla_switch
+                  - service: system_log.write
+                    data:
+                      message: "[Tesla Smart] ⛔ Charge arrêtée"
+                      level: warning
 
-            # on augmente la charge de 1A
-            - conditions:
-                - condition: template
-                  value_template: "{{ -(net) > (current_voltage) }}"
-                - condition: template
-                  value_template: "{{ states(amp_entity) | int  < max_allowed }}"
-                - condition: state
-                  entity_id: !input tesla_switch
-                  state: "on"
-              sequence:
-                - service: system_log.write
-                  data:
-                    message: >
-                      [Tesla Smart] ⬆️ AUGMENTATION - Surplus ({{ -(net) }}W) > Voltage ({{ current_voltage }}W) 
-                      - {{ states(amp_entity) }}A → {{ [(states(amp_entity) | int) + 1, max_allowed] | min }}A - Attente {{ delay_tempo_value }}s
-                    level: warning
-                - delay:
-                    seconds: "{{ delay_tempo_value }}"
-                - service: number.set_value
-                  target:
-                    entity_id: !input tesla_amperage
-                  data:
-                    value: "{{ [(states(amp_entity) | int) + 1, max_allowed] | min }}"
-                - service: system_log.write
-                  data:
-                    message: "[Tesla Smart] ⬆️ Amperage augmenté à {{ [(states(amp_entity) | int) + 1, max_allowed] | min }}A"
-                    level: warning
+              # on augmente la charge de 1A
+              - conditions:
+                  - condition: template
+                    value_template: "{{ -(net) > (current_voltage) }}"
+                  - condition: template
+                    value_template: "{{ states(amp_entity) | int  < max_allowed }}"
+                  - condition: state
+                    entity_id: !input tesla_switch
+                    state: "on"
+                sequence:
+                  - service: system_log.write
+                    data:
+                      message: >
+                        [Tesla Smart] ⬆️ AUGMENTATION - Surplus ({{ -(net) }}W) > Voltage ({{ current_voltage }}W) 
+                        - {{ states(amp_entity) }}A → {{ [(states(amp_entity) | int) + 1, max_allowed] | min }}A - Attente {{ delay_tempo_value }}s
+                      level: warning
+                  - delay:
+                      seconds: "{{ delay_tempo_value }}"
+                  - service: number.set_value
+                    target:
+                      entity_id: !input tesla_amperage
+                    data:
+                      value: "{{ [(states(amp_entity) | int) + 1, max_allowed] | min }}"
+                  - service: system_log.write
+                    data:
+                      message: "[Tesla Smart] ⬆️ Amperage augmenté à {{ [(states(amp_entity) | int) + 1, max_allowed] | min }}A"
+                      level: warning
 
-            # on diminue la charge de 1A
-            - conditions:
-                - condition: template
-                  value_template: "{{ (net) > (current_voltage) }}"
-                - condition: template
-                  value_template: "{{ states(amp_entity) | int > min_allowed }}"
-                - condition: state
-                  entity_id: !input tesla_switch
-                  state: "on"
-              sequence:
-                - service: system_log.write
-                  data:
-                    message: >
-                      [Tesla Smart] ⬇️ DIMINUTION - Conso réseau ({{ net }}W) > Voltage ({{ current_voltage }}W) 
-                      - {{ states(amp_entity) }}A → {{ [(states(amp_entity) | int) - 1, min_allowed] | max }}A - Attente {{ delay_tempo_value }}s
-                    level: warning
-                - delay:
-                    seconds: "{{ delay_tempo_value }}"
-                - service: number.set_value
-                  target:
-                    entity_id: !input tesla_amperage
-                  data:
-                    value: "{{ [(states(amp_entity) | int) - 1, min_allowed] | max }}"
-                - service: system_log.write
-                  data:
-                    message: "[Tesla Smart] ⬇️ Amperage diminué à {{ [(states(amp_entity) | int) - 1, min_allowed] | max }}A"
-                    level: warning
-  
-  # --- PORTE 4 : MODE FORCE
-  - choose:
+              # on diminue la charge de 1A
+              - conditions:
+                  - condition: template
+                    value_template: "{{ (net) > (current_voltage) }}"
+                  - condition: template
+                    value_template: "{{ states(amp_entity) | int > min_allowed }}"
+                  - condition: state
+                    entity_id: !input tesla_switch
+                    state: "on"
+                sequence:
+                  - service: system_log.write
+                    data:
+                      message: >
+                        [Tesla Smart] ⬇️ DIMINUTION - Conso réseau ({{ net }}W) > Voltage ({{ current_voltage }}W) 
+                        - {{ states(amp_entity) }}A → {{ [(states(amp_entity) | int) - 1, min_allowed] | max }}A - Attente {{ delay_tempo_value }}s
+                      level: warning
+                  - delay:
+                      seconds: "{{ delay_tempo_value }}"
+                  - service: number.set_value
+                    target:
+                      entity_id: !input tesla_amperage
+                    data:
+                      value: "{{ [(states(amp_entity) | int) - 1, min_allowed] | max }}"
+                  - service: system_log.write
+                    data:
+                      message: "[Tesla Smart] ⬇️ Amperage diminué à {{ [(states(amp_entity) | int) - 1, min_allowed] | max }}A"
+                      level: warning
+            default:
+              - service: system_log.write
+                data:
+                  message: "[Tesla Smart] Rien a faire"
+                  level: info
+    
+      # --- PORTE 4 : MODE FORCE
+      #- choose:
       - conditions:
           - condition: template
             value_template: "{{ mode == 'force' }}"
         sequence:
-          # 1. Sécurité SOC 100%
-          #- if:
-          #    - condition: numeric_state
-          #      entity_id: !input tesla_soc
-          #      above: 99.9
-          #  then:
-          #    - service: switch.turn_off
-          #      target:
-          #        entity_id: !input tesla_switch
-
           # 2. Allumage si nécessaire
           - if:
               - condition: state
@@ -379,4 +375,3 @@ action:
                 {% else %}
                   {{ current_amp }}
                 {% endif %}
-
