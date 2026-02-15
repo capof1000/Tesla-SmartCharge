@@ -1,10 +1,11 @@
 blueprint:
-  name: Optimisation Charge Tesla Photovoltaïque v0.1.1
+  name: Optimisation Charge Tesla Photovoltaïque v0.1.2
   description: |
     Blueprint prevu pour fonctionner avec mon integration tesla BLE (guition)
     Clean up some variables.
     Add door 0, if absence is detected, no action.
-    Time in message/log
+    1.1 Time in message/log
+    1.2 mode single
   domain: automation
 
   input:
@@ -124,7 +125,9 @@ blueprint:
           max: 60
           unit_of_measurement: "s"
 
-mode: restart
+#mode: restart
+mode: single
+max_exceeded: silent
 
 trigger:
   - platform: state
