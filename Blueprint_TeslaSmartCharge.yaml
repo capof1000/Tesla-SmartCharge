@@ -8,8 +8,8 @@ blueprint:
     1.2 mode single
     1.3 bug cut instead of decreasing in smart - FIXED
     1.4 Reorganize smart logic: start → increase → decrease → stop (only at min)
-	1.5 Add shortcut in force mode to max power
-	
+    1.5 Add shortcut in force mode to max power
+    
   domain: automation
 
   input:
@@ -381,7 +381,7 @@ action:
                 target:
                   entity_id: !input tesla_switch
 
-          # 3. Régulation de l'intensité (±1A)
+          # 3. Régulation de l'intensité (±1A ou saut direct au max)
           - delay:
               seconds: "{{ delay_tempo_value }}"
 
@@ -396,11 +396,9 @@ action:
 
                 {% if net > max_house and current_amp > min_amp %}
                   {{ [current_amp - 1, min_amp] | max }}
-				
-				#Shortcut to max 
-                #{% elif ((max_house - net) > (current_voltage * (max_amp - current_amp)) and (current_amp = min_amp) %} # Optimize version - keep for later
-                 {% elif ((max_house - net) > (current_voltage * (max_amp )) and (current_amp = min_amp) %} 
-                  {{ [max_amp] }}
+                
+                {% elif (max_house - net) > (current_voltage * max_amp) and current_amp == min_amp %}
+                  {{ max_amp }}
                
                 {% elif net < max_house and current_amp < max_amp %}
                   {{ [current_amp + 1, max_amp] | min }}
