@@ -1,5 +1,5 @@
 blueprint:
-  name: Optimisation Charge Tesla Photovoltaïque v0.0.9
+  name: Optimisation Charge Tesla Photovoltaïque v0.1.0
   description: |
     Blueprint prevu pour fonctionner avec mon integration tesla BLE (guition)
     Clean up some variables.
@@ -130,6 +130,16 @@ trigger:
     entity_id: !input net_consumption
   - platform: state
     entity_id: !input tesla_switch
+  - platform: state
+    entity_id: !input tesla_amperage
+  - platform: state
+    entity_id: !input tesla_current_amperage
+  - platform: state
+    entity_id: !input tesla_voltage
+  - platform: state
+    entity_id: !input presence
+  - platform: state
+    entity_id: !input tesla_soc
   - platform: state
     entity_id: !input charge_mode
   - platform: time_pattern
@@ -333,7 +343,17 @@ action:
             default:
               - service: system_log.write
                 data:
-                  message: "[Tesla Smart] Rien a faire"
+                  message: >
+                    [Tesla Smart] ⏸️ AUCUNE ACTION - État actuel:
+                    - Net: {{ net }}W (Offset: {{ offset }}W)
+                    - Switch: {{ states(switch_entity) }}
+                    - Amperage consigne: {{ states(amp_entity) }}A (Min: {{ min_allowed }}A, Max: {{ max_allowed }}A)
+                    - Amperage réel: {{ current_charge }}A
+                    - Voltage: {{ current_voltage }}V
+                    - Puissance Tesla: {{ (current_charge * current_voltage) | round(0) }}W
+                    - Surplus disponible: {{ -(net) }}W
+                    - Seuil arrêt: {{ (current_charge * current_voltage) + offset }}W
+                    - SOC: {{ soc }}%
                   level: info
     
       # --- PORTE 4 : MODE FORCE
