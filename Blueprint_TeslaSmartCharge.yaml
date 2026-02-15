@@ -1,11 +1,13 @@
 blueprint:
-  name: Optimisation Charge Tesla Photovoltaïque v0.1.2
+  name: Optimisation Charge Tesla Photovoltaïque v0.1.4
   description: |
     Blueprint prevu pour fonctionner avec mon integration tesla BLE (guition)
     Clean up some variables.
     Add door 0, if absence is detected, no action.
     1.1 Time in message/log
     1.2 mode single
+    1.3 bug cut instead of decreasing in smart - FIXED
+    1.4 Reorganize smart logic: start → increase → decrease → stop (only at min)
   domain: automation
 
   input:
@@ -240,7 +242,7 @@ action:
               
           # Gestion du démarrage et arrêt de la charge
           - choose:
-              # Start charge si conso nette < offset ET switch OFF
+              # 1. DÉMARRAGE - Start charge si surplus ET switch OFF
               - conditions:
                   - condition: template
                     value_template: "{{ net < offset }}"
@@ -264,32 +266,7 @@ action:
                       message: "[{{ now().strftime('%H:%M:%S') }}] [Tesla Smart] ✅ Charge démarrée"
                       level: warning
 
-              
-              # Stop la charge si conso nette > conso de la tesla + offset
-              - conditions:
-                  - condition: template
-                    value_template: "{{ net > ((current_charge * current_voltage) + offset ) }}"
-                  - condition: state
-                    entity_id: !input tesla_switch
-                    state: "on"
-                sequence:
-                  - service: system_log.write
-                    data:
-                      message: >
-                        [{{ now().strftime('%H:%M:%S') }}] [Tesla Smart] ⛔ ARRÊT - Net ({{ net }}W) > Conso Tesla ({{ (current_charge * current_voltage) }}W) + Offset ({{ offset }}W) 
-                        = Seuil: {{ (current_charge * current_voltage) + offset }}W - Attente {{ delay_tempo_value }}s
-                      level: warning
-                  - delay:
-                      seconds: "{{ delay_tempo_value }}"
-                  - service: switch.turn_off
-                    target:
-                      entity_id: !input tesla_switch
-                  - service: system_log.write
-                    data:
-                      message: "[{{ now().strftime('%H:%M:%S') }}] [Tesla Smart] ⛔ Charge arrêtée"
-                      level: warning
-
-              # on augmente la charge de 1A
+              # 2. AUGMENTATION - Augmenter de 1A si surplus disponible
               - conditions:
                   - condition: template
                     value_template: "{{ -(net) > (current_voltage) }}"
@@ -317,7 +294,7 @@ action:
                       message: "[{{ now().strftime('%H:%M:%S') }}] [Tesla Smart] ⬆️ Amperage augmenté à {{ [(states(amp_entity) | int) + 1, max_allowed] | min }}A"
                       level: warning
 
-              # on diminue la charge de 1A
+              # 3. DIMINUTION - Diminuer de 1A si déficit ET pas encore au minimum
               - conditions:
                   - condition: template
                     value_template: "{{ (net) > (current_voltage) }}"
@@ -343,6 +320,32 @@ action:
                   - service: system_log.write
                     data:
                       message: "[{{ now().strftime('%H:%M:%S') }}] [Tesla Smart] ⬇️ Amperage diminué à {{ [(states(amp_entity) | int) - 1, min_allowed] | max }}A"
+                      level: warning
+
+              # 4. ARRÊT - Arrêter SEULEMENT si déficit ET déjà au minimum
+              - conditions:
+                  - condition: template
+                    value_template: "{{ net > ((current_charge * current_voltage) + offset ) }}"
+                  - condition: template
+                    value_template: "{{ states(amp_entity) | int <= min_allowed }}"
+                  - condition: state
+                    entity_id: !input tesla_switch
+                    state: "on"
+                sequence:
+                  - service: system_log.write
+                    data:
+                      message: >
+                        [{{ now().strftime('%H:%M:%S') }}] [Tesla Smart] ⛔ ARRÊT - Net ({{ net }}W) > Seuil ({{ (current_charge * current_voltage) + offset }}W) 
+                        ET Amperage au minimum ({{ states(amp_entity) }}A) - Attente {{ delay_tempo_value }}s
+                      level: warning
+                  - delay:
+                      seconds: "{{ delay_tempo_value }}"
+                  - service: switch.turn_off
+                    target:
+                      entity_id: !input tesla_switch
+                  - service: system_log.write
+                    data:
+                      message: "[{{ now().strftime('%H:%M:%S') }}] [Tesla Smart] ⛔ Charge arrêtée (était au minimum)"
                       level: warning
             default:
               - service: system_log.write
