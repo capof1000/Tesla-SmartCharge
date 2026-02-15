@@ -1,9 +1,9 @@
 blueprint:
   name: Optimisation Charge Tesla Photovoltaïque v0.0.8
-  description:|
-    Blueprint fidèle à l'automatisation. 
-    - Clean up some variables.
-    - add door 0, if absence is detected, no action.
+  description: |
+    Blueprint prevu pour fonctionner avec mon integration tesla BLE (guition)
+    Clean up some variables.
+    Add door 0, if absence is detected, no action.
   domain: automation
 
   input:
