@@ -115,8 +115,8 @@ blueprint:
           unit_of_measurement: "W"
     
     delay_tempo:
-      name: Temporisation régulation mode force
-      description: il s'agit du delay de temporisatin avant d'effectuer cetaines actions.
+      name: Temporisation régulation
+      description: il s'agit du delay de temporisatin avant d'effectuer cetaines actions. ce delais est necessaire pour que l'effet d'une action soit refletee sur la mesure de consommation generale.
       default: 15
       selector:
         number:
