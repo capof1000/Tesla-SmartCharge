@@ -1,5 +1,5 @@
 blueprint:
-  name: Optimisation Charge Tesla Photovoltaïque v0.0.7
+  name: Optimisation Charge Tesla Photovoltaïque v0.0.6
   description: Blueprint fidèle à l'automatisation. Clean up some variables
   domain: automation
 
@@ -45,6 +45,14 @@ blueprint:
           domain: number
           #unit_of_measurement: "V"
 
+    presence:
+      name: Presence Tesla
+      description: On utilise le status de connection bluetooth de la gateway afin deduire si l'auto est presente (ou pas). En cas d'absence, aucune conigne de pouvant aboutir, nous resterons muet.
+      default: binary_sensor.tesla_ble_status
+      selector:
+        entity:
+          domain: binary_sensor
+          
     amp_min:
       name: Intensite de charge mini
       description: Intensite de charge minimal admissible, l'application Officielle ne permet pas de descendre sous 5A, on peut descendre legerement en dessous.
@@ -101,8 +109,6 @@ blueprint:
           max: 3000
           step: 1
           unit_of_measurement: "W"
-
-
     
     delay_tempo:
       name: Temporisation régulation mode force
@@ -148,6 +154,7 @@ variables:
   #current_charge: "{{ states(!input tesla_current_amperage) | float(0) }}"
   delay_tempo_value: !input delay_tempo
   offset: !input offset_start
+  tesla_presence: !input presence
   
 
   #min_power: 1100
@@ -182,8 +189,15 @@ variables:
   #smart_threshold: "{{ -(min_power * (soc / 100)) }}"
 
 action:
+  # --- PORTE 1 : ABSENCE ---
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ states(tesla_presence) != 'on' }}"
+        sequence:
+          - stop: "Tesla absente ou Bluetooth déconnecté."
 
-  # MODE MANUEL
+  # --- PORTE 2 : MODE MANUEL
   - choose:
       - conditions:
           - condition: template
@@ -191,7 +205,7 @@ action:
         sequence:
           - stop: "Mode manuel actif – aucune automatisation"
 
-  # MODE SMART SOLAIRE
+  # --- PORTE 3 : MODE SMART SOLAIRE
   - choose:
     - conditions:
         - condition: template
@@ -312,7 +326,8 @@ action:
                   data:
                     message: "[Tesla Smart] ⬇️ Amperage diminué à {{ [(states(amp_entity) | int) - 1, min_allowed] | max }}A"
                     level: warning
-  # MODE FORCE
+  
+  # --- PORTE 4 : MODE FORCE
   - choose:
       - conditions:
           - condition: template
