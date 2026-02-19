@@ -1,5 +1,5 @@
 blueprint:
-  name: Optimisation Charge Tesla Photovoltaïque v0.1.5
+  name: Optimisation Charge Tesla Photovoltaïque v0.1.6
   description: |
     Blueprint prevu pour fonctionner avec mon integration tesla BLE (guition)
     Clean up some variables.
@@ -9,6 +9,7 @@ blueprint:
     1.3 bug cut instead of decreasing in smart - FIXED
     1.4 Reorganize smart logic: start → increase → decrease → stop (only at min)
     1.5 Add shortcut in force mode to max power
+    1.6 Replace presence (BLE status) by charge cable sensor (binary_sensor.tesla_charge_flap)
     
   domain: automation
 
@@ -52,12 +53,11 @@ blueprint:
       selector:
         entity:
           domain: number
-          #unit_of_measurement: "V"
 
-    presence:
-      name: Presence Tesla
-      description: On utilise le status de connection bluetooth de la gateway afin deduire si l'auto est presente (ou pas). En cas d'absence, aucune conigne de pouvant aboutir, nous resterons muet.
-      default: binary_sensor.tesla_ble_status
+    charge_cable:
+      name: Câble de charge branché
+      description: Capteur indiquant si le câble de charge est branché à la voiture. Aucune action ne sera effectuée si le câble n'est pas connecté.
+      default: binary_sensor.tesla_charge_flap
       selector:
         entity:
           domain: binary_sensor
@@ -129,7 +129,6 @@ blueprint:
           max: 60
           unit_of_measurement: "s"
 
-#mode: restart
 mode: single
 max_exceeded: silent
 
@@ -145,7 +144,7 @@ trigger:
   - platform: state
     entity_id: !input tesla_voltage
   - platform: state
-    entity_id: !input presence
+    entity_id: !input charge_cable
   - platform: state
     entity_id: !input tesla_soc
   - platform: state
@@ -156,79 +155,41 @@ trigger:
 variables:
   net_entity: !input net_consumption
   net: "{{ states(net_entity) | float(0) }}"
-  #net: "{{ states(!input net_consumption) | float(0) }}"
   switch_entity: !input tesla_switch
   amp_entity: !input tesla_amperage
   soc_entity: !input tesla_soc
   soc: "{{ states(soc_entity) | float(0) }}"
-  #soc: "{{ states(!input tesla_soc) | float(0) }}"
   mode_entity: !input charge_mode
-  #mode: "{{ states(mode_entity) | string }}"
   mode: "{{ states(mode_entity) | default('manuel') }}"
-  #mode: "{{ states(!input charge_mode) | default('manuel') }}"
   min_allowed: !input amp_min
   max_allowed: !input amp_max
   tesla_voltage_charge: !input tesla_voltage
   current_voltage: "{{ states(tesla_voltage_charge) | int(220) if 150 < states(tesla_voltage_charge) | int(220) < 260 else 220 }}"
   tesla_current_charge: !input tesla_current_amperage
   current_charge: "{{ states(tesla_current_charge) | float(0) }}"
-  #current_charge: "{{ states(!input tesla_current_amperage) | float(0) }}"
   delay_tempo_value: !input delay_tempo
   offset: !input offset_start
-  tesla_presence: !input presence
-  
-
-  #min_power: 1100
+  tesla_charge_cable: !input charge_cable
   max_house: !input max_house_power
-
-  #available_power: "{{ -net }}"
-
-  #computed_amps: >-
-  #  {% set watts = available_power %}
-  #  {% set amp = watts / (min_power / 5) %}
-  #  {% if amp < 5 %}
-  #    0
-  #  {% elif amp > 32 %}
-  #    32
-  #  {% else %}
-  #    {{ amp | round(0) }}
-  #  {% endif %}
-
-  #current_voltage: >-
-  #  {% set volts = states(tesla_voltage_charge) | int(220) %}
-  #  {% if 150 < volts < 260 %}
-  #    {{ volts }}
-  #  {% else %}
-  #    220
-  #  {% endif %}
-
- 
-  #current_voltage: "{{ states(!input tesla_voltage) | int(220) if 150 < states(!input tesla_voltage) | int(220) < 260 else 220 }}"
- 
-  
-
-  #smart_threshold: "{{ -(min_power * (soc / 100)) }}"
 
 action:
   
   - choose:
-      # --- PORTE 1 : ABSENCE ---
+      # --- PORTE 1 : CÂBLE NON BRANCHÉ ---
       - conditions:
           - condition: template
-            value_template: "{{ states(tesla_presence) != 'on' }}"
+            value_template: "{{ states(tesla_charge_cable) != 'on' }}"
         sequence:
-          - stop: "Tesla absente ou Bluetooth déconnecté."
+          - stop: "Câble de charge non branché – aucune action."
 
-      # --- PORTE 2 : MODE MANUEL
-      #- choose:
+      # --- PORTE 2 : MODE MANUEL ---
       - conditions:
           - condition: template
             value_template: "{{ mode == 'manuel' }}"
         sequence:
           - stop: "Mode manuel actif – aucune automatisation"
 
-      # --- PORTE 3 : MODE SMART SOLAIRE
-      #- choose:
+      # --- PORTE 3 : MODE SMART SOLAIRE ---
       - conditions:
           - condition: template
             value_template: "{{ mode == 'smart_solaire' }}"
@@ -365,13 +326,12 @@ action:
                     - SOC: {{ soc }}%
                   level: info
     
-      # --- PORTE 4 : MODE FORCE
-      #- choose:
+      # --- PORTE 4 : MODE FORCE ---
       - conditions:
           - condition: template
             value_template: "{{ mode == 'force' }}"
         sequence:
-          # 2. Allumage si nécessaire
+          # Allumage si nécessaire
           - if:
               - condition: state
                 entity_id: !input tesla_switch
@@ -381,7 +341,7 @@ action:
                 target:
                   entity_id: !input tesla_switch
 
-          # 3. Régulation de l'intensité (±1A ou saut direct au max)
+          # Régulation de l'intensité (±1A ou saut direct au max)
           - delay:
               seconds: "{{ delay_tempo_value }}"
 
