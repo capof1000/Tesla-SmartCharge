@@ -1,7 +1,7 @@
 blueprint:
   name: Optimisation Charge Tesla Photovoltaïque v0.1.6
   description: |
-    Blueprint prevu pour fonctionner avec mon integration tesla BLE (guition)
+    Blueprint prevu pour fonctionner avec mon integration tesla BLE (guition) : https://github.com/capof1000/guition-tesla-ble
     Clean up some variables.
     Add door 0, if absence is detected, no action.
     1.1 Time in message/log
