@@ -1,7 +1,7 @@
 blueprint:
-  name: Optimisation Charge Tesla Photovoltaïque v0.1.6
+  name: Optimisation Charge Tesla Photovoltaïque v0.1.7
   description: |
-    Blueprint prevu pour fonctionner avec mon integration tesla BLE (guition) : https://github.com/capof1000/guition-tesla-ble
+    Blueprint prevu pour fonctionner avec mon integration tesla BLE (guition)
     Clean up some variables.
     Add door 0, if absence is detected, no action.
     1.1 Time in message/log
@@ -10,6 +10,7 @@ blueprint:
     1.4 Reorganize smart logic: start → increase → decrease → stop (only at min)
     1.5 Add shortcut in force mode to max power
     1.6 Replace presence (BLE status) by charge cable sensor (binary_sensor.tesla_charge_flap)
+    1.7 Update mode values to english (manual/solar/forced) for b28 multi-language support
     
   domain: automation
 
@@ -92,7 +93,9 @@ blueprint:
 
     charge_mode:
       name: Mode de charge Tesla
-      description: il s'agit d'un selecteur afin de choisir le mode de charge. (fourni par MA version de Tesla BLE/guition) :Manuel, Force ou smart_solaire.
+      description: >
+        Selecteur de mode de charge (fourni par MA version de Tesla BLE/guition).
+        Valeurs attendues (en anglais depuis b28) : manual, solar, forced.
       default: select.tesla_mode_charge_tesla
       selector:
         entity:
@@ -160,7 +163,7 @@ variables:
   soc_entity: !input tesla_soc
   soc: "{{ states(soc_entity) | float(0) }}"
   mode_entity: !input charge_mode
-  mode: "{{ states(mode_entity) | default('manuel') }}"
+  mode: "{{ states(mode_entity) | default('manual') }}"
   min_allowed: !input amp_min
   max_allowed: !input amp_max
   tesla_voltage_charge: !input tesla_voltage
@@ -185,16 +188,15 @@ action:
       # --- PORTE 2 : MODE MANUEL ---
       - conditions:
           - condition: template
-            value_template: "{{ mode == 'manuel' }}"
+            value_template: "{{ mode == 'manual' }}"   # b28 - anciennement 'manuel'
         sequence:
           - stop: "Mode manuel actif – aucune automatisation"
 
       # --- PORTE 3 : MODE SMART SOLAIRE ---
       - conditions:
           - condition: template
-            value_template: "{{ mode == 'smart_solaire' }}"
+            value_template: "{{ mode == 'solar' }}"   # b28 - anciennement 'smart_solaire'
         sequence:
-          # Debug : afficher les variables au début
           - service: system_log.write
             data:
               message: >
@@ -203,9 +205,8 @@ action:
                 Amperage consigne: {{ states(amp_entity) }}A, Switch: {{ states(switch_entity) }}
               level: info
               
-          # Gestion du démarrage et arrêt de la charge
           - choose:
-              # 1. DÉMARRAGE - Start charge si surplus ET switch OFF
+              # 1. DÉMARRAGE
               - conditions:
                   - condition: template
                     value_template: "{{ net < offset }}"
@@ -229,7 +230,7 @@ action:
                       message: "[{{ now().strftime('%H:%M:%S') }}] [Tesla Smart] ✅ Charge démarrée"
                       level: warning
 
-              # 2. AUGMENTATION - Augmenter de 1A si surplus disponible
+              # 2. AUGMENTATION
               - conditions:
                   - condition: template
                     value_template: "{{ -(net) > (current_voltage) }}"
@@ -257,7 +258,7 @@ action:
                       message: "[{{ now().strftime('%H:%M:%S') }}] [Tesla Smart] ⬆️ Amperage augmenté à {{ [(states(amp_entity) | int) + 1, max_allowed] | min }}A"
                       level: warning
 
-              # 3. DIMINUTION - Diminuer de 1A si déficit ET pas encore au minimum
+              # 3. DIMINUTION
               - conditions:
                   - condition: template
                     value_template: "{{ (net) > (current_voltage) }}"
@@ -285,7 +286,7 @@ action:
                       message: "[{{ now().strftime('%H:%M:%S') }}] [Tesla Smart] ⬇️ Amperage diminué à {{ [(states(amp_entity) | int) - 1, min_allowed] | max }}A"
                       level: warning
 
-              # 4. ARRÊT - Arrêter SEULEMENT si déficit ET déjà au minimum
+              # 4. ARRÊT
               - conditions:
                   - condition: template
                     value_template: "{{ net > ((current_charge * current_voltage) + offset ) }}"
@@ -329,9 +330,8 @@ action:
       # --- PORTE 4 : MODE FORCE ---
       - conditions:
           - condition: template
-            value_template: "{{ mode == 'force' }}"
+            value_template: "{{ mode == 'forced' }}"   # b28 - anciennement 'force'
         sequence:
-          # Allumage si nécessaire
           - if:
               - condition: state
                 entity_id: !input tesla_switch
@@ -341,7 +341,6 @@ action:
                 target:
                   entity_id: !input tesla_switch
 
-          # Régulation de l'intensité (±1A ou saut direct au max)
           - delay:
               seconds: "{{ delay_tempo_value }}"
 
