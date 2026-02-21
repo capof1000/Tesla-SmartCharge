@@ -1,5 +1,5 @@
 blueprint:
-  name: Optimisation Charge Tesla Photovoltaïque v0.1.7
+  name: Optimisation Charge Tesla Photovoltaïque v0.1.8
   description: |
     Blueprint prevu pour fonctionner avec mon integration tesla BLE (guition)
     Clean up some variables.
@@ -11,6 +11,7 @@ blueprint:
     1.5 Add shortcut in force mode to max power
     1.6 Replace presence (BLE status) by charge cable sensor (binary_sensor.tesla_charge_flap)
     1.7 Update mode values to english (manual/solar/forced) for b28 multi-language support
+    1.8 Fix tesla_current_amperage and tesla_voltage selectors : domain number → sensor
     
   domain: automation
 
@@ -45,7 +46,7 @@ blueprint:
       default: sensor.tesla_charge_current
       selector:
         entity:
-          domain: number
+          domain: sensor   # b1.8 - fix : était "number", charge_current est un sensor chez Pedro
 
     tesla_voltage:
       name: Voltage de charge Tesla
@@ -53,7 +54,7 @@ blueprint:
       default: sensor.tesla_charge_voltage
       selector:
         entity:
-          domain: number
+          domain: sensor   # b1.8 - fix : était "number", charge_voltage est un sensor chez Pedro
 
     charge_cable:
       name: Câble de charge branché
@@ -188,14 +189,14 @@ action:
       # --- PORTE 2 : MODE MANUEL ---
       - conditions:
           - condition: template
-            value_template: "{{ mode == 'manual' }}"   # b28 - anciennement 'manuel'
+            value_template: "{{ mode == 'manual' }}"
         sequence:
           - stop: "Mode manuel actif – aucune automatisation"
 
       # --- PORTE 3 : MODE SMART SOLAIRE ---
       - conditions:
           - condition: template
-            value_template: "{{ mode == 'solar' }}"   # b28 - anciennement 'smart_solaire'
+            value_template: "{{ mode == 'solar' }}"
         sequence:
           - service: system_log.write
             data:
@@ -330,7 +331,7 @@ action:
       # --- PORTE 4 : MODE FORCE ---
       - conditions:
           - condition: template
-            value_template: "{{ mode == 'forced' }}"   # b28 - anciennement 'force'
+            value_template: "{{ mode == 'forced' }}"
         sequence:
           - if:
               - condition: state
