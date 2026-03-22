@@ -114,8 +114,8 @@ blueprint:
 
     offset_start:
       name: Offset à l'allumage (W)
-      description: La Consomation nette doit etre inferieure a cette à cette valeur pour allumer l'équipement (valeur négative).Entrez, -1200 pour demarrer l'appareil lorsque la surproduction atteint 1200W.
-      default: -50
+      description: En mode solaire, La Consomation nette doit etre inferieure a cette à cette valeur pour allumer l'équipement (valeur négative).Entrez, -1200 pour demarrer l'appareil lorsque la surproduction atteint 1200W.
+      default: -1100
       selector:
         number:
           min: -3000
