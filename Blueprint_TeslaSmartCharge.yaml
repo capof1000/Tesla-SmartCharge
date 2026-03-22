@@ -1,5 +1,5 @@
 blueprint:
-  name: Optimisation Charge Tesla Photovoltaïque v0.2.0
+  name: Optimisation Charge Tesla Photovoltaïque v0.2.1
   description: |
     Blueprint prevu pour fonctionner avec mon integration tesla BLE (guition)
     Clean up some variables.
@@ -13,7 +13,8 @@ blueprint:
     0.1.7 Update mode values to english (manual/solar/forced) for b28 multi-language support
     0.1.8 Fix tesla_current_amperage and tesla_voltage selectors : domain number → sensor
     0.1.9 Cosmetic: rename offset_start → solar_min_power, improve input name and description
-    0.2.0 Solar mode: shift regulation band by -1A to preserve battery storage (increase threshold: surplus > 2×V, decrease threshold: net > -1×V)
+    0.2.0 Solar mode: shift regulation band by -1A to preserve battery storage
+    0.2.1 Solar mode: add tolerance input (default 10%) to widen dead zone and prevent elastic effect with home battery
 
   domain: automation
 
@@ -129,6 +130,21 @@ blueprint:
           step: 1
           unit_of_measurement: "W"
 
+    solar_tolerance:
+      name: Tolérance de régulation solaire (%)
+      description: >
+        En mode solaire, pourcentage de tolérance appliqué autour des seuils de régulation
+        afin d'élargir la zone morte et d'éviter les oscillations entre la batterie domestique
+        et la charge Tesla. À 10%, les seuils s'écartent de 10% dans chaque direction.
+        Augmenter cette valeur si l'effet élastique persiste.
+      default: 10
+      selector:
+        number:
+          min: 0
+          max: 50
+          step: 1
+          unit_of_measurement: "%"
+
     delay_tempo:
       name: Temporisation régulation
       description: il s'agit du delay de temporisatin avant d'effectuer cetaines actions. ce delais est necessaire pour que l'effet d'une action soit refletee sur la mesure de consommation generale.
@@ -179,8 +195,12 @@ variables:
   current_charge: "{{ states(tesla_current_charge) | float(0) }}"
   delay_tempo_value: !input delay_tempo
   offset: !input solar_min_power
+  tolerance_pct: !input solar_tolerance
   tesla_charge_cable: !input charge_cable
   max_house: !input max_house_power
+  # Seuils calculés avec tolérance
+  threshold_increase: "{{ current_voltage * (2 + tolerance_pct / 100) }}"
+  threshold_decrease: "{{ -(current_voltage * (1 - tolerance_pct / 100)) }}"
 
 action:
 
@@ -207,9 +227,10 @@ action:
           - service: system_log.write
             data:
               message: >
-                [{{ now().strftime('%H:%M:%S') }}] [Tesla Smart] Variables - Mode: {{ mode }}, Net: {{ net }}W, Offset: {{ offset }}W, 
-                Voltage: {{ current_voltage }}V, Charge actuelle: {{ current_charge }}A, 
-                Amperage consigne: {{ states(amp_entity) }}A, Switch: {{ states(switch_entity) }}
+                [{{ now().strftime('%H:%M:%S') }}] [Tesla Smart] Variables - Mode: {{ mode }}, Net: {{ net }}W, Offset: {{ offset }}W,
+                Voltage: {{ current_voltage }}V, Charge actuelle: {{ current_charge }}A,
+                Amperage consigne: {{ states(amp_entity) }}A, Switch: {{ states(switch_entity) }},
+                Tolérance: {{ tolerance_pct }}%, Seuil ⬆️: {{ threshold_increase | round(0) }}W, Seuil ⬇️: {{ threshold_decrease | round(0) }}W
               level: info
 
           - choose:
@@ -224,7 +245,7 @@ action:
                   - service: system_log.write
                     data:
                       message: >
-                        [{{ now().strftime('%H:%M:%S') }}] [Tesla Smart] ✅ DÉMARRAGE - Net ({{ net }}W) < Offset ({{ offset }}W) 
+                        [{{ now().strftime('%H:%M:%S') }}] [Tesla Smart] ✅ DÉMARRAGE - Net ({{ net }}W) < Offset ({{ offset }}W)
                         - Attente {{ delay_tempo_value }}s avant démarrage
                       level: warning
                   - delay:
@@ -238,10 +259,10 @@ action:
                       level: warning
 
               # 2. AUGMENTATION
-              # v0.2.0 : seuil porté à 2×V (surplus > 500W@230V) pour garder la conso strictement négative
+              # Seuil : surplus > V × (2 + tol%) — ex. 10% → 525W@250V
               - conditions:
                   - condition: template
-                    value_template: "{{ -(net) > (2 * current_voltage) }}"
+                    value_template: "{{ -(net) > threshold_increase }}"
                   - condition: template
                     value_template: "{{ states(amp_entity) | int < max_allowed }}"
                   - condition: state
@@ -251,7 +272,7 @@ action:
                   - service: system_log.write
                     data:
                       message: >
-                        [{{ now().strftime('%H:%M:%S') }}] [Tesla Smart] ⬆️ AUGMENTATION - Surplus ({{ -(net) }}W) > 2×Voltage ({{ 2 * current_voltage }}W) 
+                        [{{ now().strftime('%H:%M:%S') }}] [Tesla Smart] ⬆️ AUGMENTATION - Surplus ({{ -(net) }}W) > Seuil ({{ threshold_increase | round(0) }}W)
                         - {{ states(amp_entity) }}A → {{ [(states(amp_entity) | int) + 1, max_allowed] | min }}A - Attente {{ delay_tempo_value }}s
                       level: warning
                   - delay:
@@ -267,10 +288,10 @@ action:
                       level: warning
 
               # 3. DIMINUTION
-              # v0.2.0 : seuil abaissé à -1×V (net > -250W@230V) pour éviter de puiser dans la batterie
+              # Seuil : net > -(V × (1 - tol%)) — ex. 10% → -225W@250V
               - conditions:
                   - condition: template
-                    value_template: "{{ net > -(current_voltage) }}"
+                    value_template: "{{ net > threshold_decrease }}"
                   - condition: template
                     value_template: "{{ states(amp_entity) | int > min_allowed }}"
                   - condition: state
@@ -280,7 +301,7 @@ action:
                   - service: system_log.write
                     data:
                       message: >
-                        [{{ now().strftime('%H:%M:%S') }}] [Tesla Smart] ⬇️ DIMINUTION - Conso réseau ({{ net }}W) > -Voltage (-{{ current_voltage }}W) 
+                        [{{ now().strftime('%H:%M:%S') }}] [Tesla Smart] ⬇️ DIMINUTION - Net ({{ net }}W) > Seuil ({{ threshold_decrease | round(0) }}W)
                         - {{ states(amp_entity) }}A → {{ [(states(amp_entity) | int) - 1, min_allowed] | max }}A - Attente {{ delay_tempo_value }}s
                       level: warning
                   - delay:
@@ -298,7 +319,7 @@ action:
               # 4. ARRÊT
               - conditions:
                   - condition: template
-                    value_template: "{{ net > ((current_charge * current_voltage) + offset ) }}"
+                    value_template: "{{ net > ((current_charge * current_voltage) + offset) }}"
                   - condition: template
                     value_template: "{{ states(amp_entity) | int <= min_allowed }}"
                   - condition: state
@@ -308,7 +329,7 @@ action:
                   - service: system_log.write
                     data:
                       message: >
-                        [{{ now().strftime('%H:%M:%S') }}] [Tesla Smart] ⛔ ARRÊT - Net ({{ net }}W) > Seuil ({{ (current_charge * current_voltage) + offset }}W) 
+                        [{{ now().strftime('%H:%M:%S') }}] [Tesla Smart] ⛔ ARRÊT - Net ({{ net }}W) > Seuil ({{ (current_charge * current_voltage) + offset }}W)
                         ET Amperage au minimum ({{ states(amp_entity) }}A) - Attente {{ delay_tempo_value }}s
                       level: warning
                   - delay:
@@ -333,7 +354,7 @@ action:
                     - Puissance Tesla: {{ (current_charge * current_voltage) | round(0) }}W
                     - Surplus disponible: {{ -(net) }}W
                     - Seuil arrêt: {{ (current_charge * current_voltage) + offset }}W
-                    - Bande neutre: {{ -(current_voltage) }}W … {{ -(2 * current_voltage) }}W
+                    - Zone morte: {{ threshold_decrease | round(0) }}W … {{ -(threshold_increase | round(0)) }}W (tol. {{ tolerance_pct }}%)
                     - SOC: {{ soc }}%
                   level: info
 
