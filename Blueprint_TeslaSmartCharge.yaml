@@ -1,5 +1,5 @@
 blueprint:
-  name: Optimisation Charge Tesla Photovoltaïque v0.1.9
+  name: Optimisation Charge Tesla Photovoltaïque v0.2.0
   description: |
     Blueprint prevu pour fonctionner avec mon integration tesla BLE (guition)
     Clean up some variables.
@@ -13,6 +13,7 @@ blueprint:
     0.1.7 Update mode values to english (manual/solar/forced) for b28 multi-language support
     0.1.8 Fix tesla_current_amperage and tesla_voltage selectors : domain number → sensor
     0.1.9 Cosmetic: rename offset_start → solar_min_power, improve input name and description
+    0.2.0 Solar mode: shift regulation band by -1A to preserve battery storage (increase threshold: surplus > 2×V, decrease threshold: net > -1×V)
 
   domain: automation
 
@@ -105,7 +106,7 @@ blueprint:
 
     max_house_power:
       name: Puissance max du foyer (W)
-      description: En mode forcé, iL s'agit ici d'une consigne de consommation maximale a ne pas depasser, afin d'eviter de disjoncter lorsque d'autre gros consommateur sont en fonction (couplage AC). donc a adapter en fonction de votre abonnement Enedis. Par exemple une approximation, 12KVA -> 12000.
+      description: En mode forcé, il s'agit ici d'une consigne de consommation maximale a ne pas depasser, afin d'eviter de disjoncter lorsque d'autre gros consommateur sont en fonction (couplage AC). donc a adapter en fonction de votre abonnement Enedis. Par exemple une approximation, 12KVA -> 12000.
       default: 12000
       selector:
         number:
@@ -118,7 +119,8 @@ blueprint:
       description: >
         En mode solaire, seuil de surproduction nécessaire pour démarrer la charge.
         Entrez une valeur négative : par exemple -1200 pour démarrer lorsque la surproduction
-        atteint 1200W (la consommation nette doit être inférieure à cette valeur).Cette Valeur doit etre en lien avec l'intensite de charge mini.
+        atteint 1200W (la consommation nette doit être inférieure à cette valeur).
+        Cette valeur doit etre en lien avec l'intensite de charge mini.
       default: -1100
       selector:
         number:
@@ -236,11 +238,12 @@ action:
                       level: warning
 
               # 2. AUGMENTATION
+              # v0.2.0 : seuil porté à 2×V (surplus > 500W@230V) pour garder la conso strictement négative
               - conditions:
                   - condition: template
-                    value_template: "{{ -(net) > (current_voltage) }}"
+                    value_template: "{{ -(net) > (2 * current_voltage) }}"
                   - condition: template
-                    value_template: "{{ states(amp_entity) | int  < max_allowed }}"
+                    value_template: "{{ states(amp_entity) | int < max_allowed }}"
                   - condition: state
                     entity_id: !input tesla_switch
                     state: "on"
@@ -248,7 +251,7 @@ action:
                   - service: system_log.write
                     data:
                       message: >
-                        [{{ now().strftime('%H:%M:%S') }}] [Tesla Smart] ⬆️ AUGMENTATION - Surplus ({{ -(net) }}W) > Voltage ({{ current_voltage }}W) 
+                        [{{ now().strftime('%H:%M:%S') }}] [Tesla Smart] ⬆️ AUGMENTATION - Surplus ({{ -(net) }}W) > 2×Voltage ({{ 2 * current_voltage }}W) 
                         - {{ states(amp_entity) }}A → {{ [(states(amp_entity) | int) + 1, max_allowed] | min }}A - Attente {{ delay_tempo_value }}s
                       level: warning
                   - delay:
@@ -264,9 +267,10 @@ action:
                       level: warning
 
               # 3. DIMINUTION
+              # v0.2.0 : seuil abaissé à -1×V (net > -250W@230V) pour éviter de puiser dans la batterie
               - conditions:
                   - condition: template
-                    value_template: "{{ (net) > (current_voltage) }}"
+                    value_template: "{{ net > -(current_voltage) }}"
                   - condition: template
                     value_template: "{{ states(amp_entity) | int > min_allowed }}"
                   - condition: state
@@ -276,7 +280,7 @@ action:
                   - service: system_log.write
                     data:
                       message: >
-                        [{{ now().strftime('%H:%M:%S') }}] [Tesla Smart] ⬇️ DIMINUTION - Conso réseau ({{ net }}W) > Voltage ({{ current_voltage }}W) 
+                        [{{ now().strftime('%H:%M:%S') }}] [Tesla Smart] ⬇️ DIMINUTION - Conso réseau ({{ net }}W) > -Voltage (-{{ current_voltage }}W) 
                         - {{ states(amp_entity) }}A → {{ [(states(amp_entity) | int) - 1, min_allowed] | max }}A - Attente {{ delay_tempo_value }}s
                       level: warning
                   - delay:
@@ -329,6 +333,7 @@ action:
                     - Puissance Tesla: {{ (current_charge * current_voltage) | round(0) }}W
                     - Surplus disponible: {{ -(net) }}W
                     - Seuil arrêt: {{ (current_charge * current_voltage) + offset }}W
+                    - Bande neutre: {{ -(current_voltage) }}W … {{ -(2 * current_voltage) }}W
                     - SOC: {{ soc }}%
                   level: info
 
