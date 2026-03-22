@@ -1,18 +1,19 @@
 blueprint:
-  name: Optimisation Charge Tesla Photovoltaïque v0.1.8
+  name: Optimisation Charge Tesla Photovoltaïque v0.1.9
   description: |
     Blueprint prevu pour fonctionner avec mon integration tesla BLE (guition)
     Clean up some variables.
     Add door 0, if absence is detected, no action.
-    1.1 Time in message/log
-    1.2 mode single
-    1.3 bug cut instead of decreasing in smart - FIXED
-    1.4 Reorganize smart logic: start → increase → decrease → stop (only at min)
-    1.5 Add shortcut in force mode to max power
-    1.6 Replace presence (BLE status) by charge cable sensor (binary_sensor.tesla_charge_flap)
-    1.7 Update mode values to english (manual/solar/forced) for b28 multi-language support
-    1.8 Fix tesla_current_amperage and tesla_voltage selectors : domain number → sensor
-    
+    0.1.1 Time in message/log
+    0.1.2 mode single
+    0.1.3 bug cut instead of decreasing in smart - FIXED
+    0.1.4 Reorganize smart logic: start → increase → decrease → stop (only at min)
+    0.1.5 Add shortcut in force mode to max power
+    0.1.6 Replace presence (BLE status) by charge cable sensor (binary_sensor.tesla_charge_flap)
+    0.1.7 Update mode values to english (manual/solar/forced) for b28 multi-language support
+    0.1.8 Fix tesla_current_amperage and tesla_voltage selectors : domain number → sensor
+    0.1.9 Cosmetic: rename offset_start → solar_min_power, improve input name and description
+
   domain: automation
 
   input:
@@ -63,7 +64,7 @@ blueprint:
       selector:
         entity:
           domain: binary_sensor
-          
+
     amp_min:
       name: Intensite de charge mini
       description: Intensite de charge minimal admissible, l'application Officielle ne permet pas de descendre sous 5A, on peut descendre legerement en dessous.
@@ -73,16 +74,16 @@ blueprint:
           min: 5
           max: 32
           unit_of_measurement: "A"
-      
+
     amp_max:
-        name: Intensite de charge max
-        description: Intensite de charge maximale admissible, l'application Officielle limite la charge a 16A sur une prise standard, 32A sur une P17. Conserver ces reglages est largement recommande !
-        default: 32
-        selector:
-          number:
-            min: 5
-            max: 32
-            unit_of_measurement: "A"
+      name: Intensite de charge max
+      description: Intensite de charge maximale admissible, l'application Officielle limite la charge a 16A sur une prise standard, 32A sur une P17. Conserver ces reglages est largement recommande !
+      default: 32
+      selector:
+        number:
+          min: 5
+          max: 32
+          unit_of_measurement: "A"
 
     tesla_soc:
       name: Niveau de charge Tesla (SOC)
@@ -112,9 +113,12 @@ blueprint:
           max: 36000
           unit_of_measurement: W
 
-    offset_start:
-      name: Offset à l'allumage (W)
-      description: En mode solaire, La Consomation nette doit etre inferieure a cette à cette valeur pour allumer l'équipement (valeur négative).Entrez, -1200 pour demarrer l'appareil lorsque la surproduction atteint 1200W.
+    solar_min_power:
+      name: Puissance minimale de démarrage (W)
+      description: >
+        En mode solaire, seuil de surproduction nécessaire pour démarrer la charge.
+        Entrez une valeur négative : par exemple -1200 pour démarrer lorsque la surproduction
+        atteint 1200W (la consommation nette doit être inférieure à cette valeur).
       default: -1100
       selector:
         number:
@@ -122,7 +126,7 @@ blueprint:
           max: 3000
           step: 1
           unit_of_measurement: "W"
-    
+
     delay_tempo:
       name: Temporisation régulation
       description: il s'agit du delay de temporisatin avant d'effectuer cetaines actions. ce delais est necessaire pour que l'effet d'une action soit refletee sur la mesure de consommation generale.
@@ -172,12 +176,12 @@ variables:
   tesla_current_charge: !input tesla_current_amperage
   current_charge: "{{ states(tesla_current_charge) | float(0) }}"
   delay_tempo_value: !input delay_tempo
-  offset: !input offset_start
+  offset: !input solar_min_power
   tesla_charge_cable: !input charge_cable
   max_house: !input max_house_power
 
 action:
-  
+
   - choose:
       # --- PORTE 1 : CÂBLE NON BRANCHÉ ---
       - conditions:
@@ -205,7 +209,7 @@ action:
                 Voltage: {{ current_voltage }}V, Charge actuelle: {{ current_charge }}A, 
                 Amperage consigne: {{ states(amp_entity) }}A, Switch: {{ states(switch_entity) }}
               level: info
-              
+
           - choose:
               # 1. DÉMARRAGE
               - conditions:
@@ -327,7 +331,7 @@ action:
                     - Seuil arrêt: {{ (current_charge * current_voltage) + offset }}W
                     - SOC: {{ soc }}%
                   level: info
-    
+
       # --- PORTE 4 : MODE FORCE ---
       - conditions:
           - condition: template
@@ -356,10 +360,10 @@ action:
 
                 {% if net > max_house and current_amp > min_amp %}
                   {{ [current_amp - 1, min_amp] | max }}
-                
+
                 {% elif (max_house - net) > (current_voltage * max_amp) and current_amp == min_amp %}
                   {{ max_amp }}
-               
+
                 {% elif net < max_house and current_amp < max_amp %}
                   {{ [current_amp + 1, max_amp] | min }}
 
