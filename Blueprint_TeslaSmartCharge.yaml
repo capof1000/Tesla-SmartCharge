@@ -105,7 +105,7 @@ blueprint:
 
     max_house_power:
       name: Puissance max du foyer (W)
-      description: IL s'agit ici d'une consigne de consommation maximale a ne pas depasse en mode force, afin d'eviter de disjoncter lorsque d'autre gros consommateur sont en fonction (couplage AC). donc a adapter en fonction de votre abonnement Enedis. Par exemple une approximation, 12KVA -> 12000.
+      description: En mode forcé, iL s'agit ici d'une consigne de consommation maximale a ne pas depasser, afin d'eviter de disjoncter lorsque d'autre gros consommateur sont en fonction (couplage AC). donc a adapter en fonction de votre abonnement Enedis. Par exemple une approximation, 12KVA -> 12000.
       default: 12000
       selector:
         number:
@@ -118,7 +118,7 @@ blueprint:
       description: >
         En mode solaire, seuil de surproduction nécessaire pour démarrer la charge.
         Entrez une valeur négative : par exemple -1200 pour démarrer lorsque la surproduction
-        atteint 1200W (la consommation nette doit être inférieure à cette valeur).
+        atteint 1200W (la consommation nette doit être inférieure à cette valeur).Cette Valeur doit etre en lien avec l'intensite de charge mini.
       default: -1100
       selector:
         number:
