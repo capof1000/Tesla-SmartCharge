@@ -1,5 +1,5 @@
 blueprint:
-  name: Optimisation Charge Tesla Photovoltaïque v0.2.1
+  name: Optimisation Charge Tesla Photovoltaïque v0.2.2
   description: |
     Blueprint prevu pour fonctionner avec mon integration tesla BLE (guition)
     Clean up some variables.
@@ -14,7 +14,8 @@ blueprint:
     0.1.8 Fix tesla_current_amperage and tesla_voltage selectors : domain number → sensor
     0.1.9 Cosmetic: rename offset_start → solar_min_power, improve input name and description
     0.2.0 Solar mode: shift regulation band by -1A to preserve battery storage
-    0.2.1 Solar mode: add tolerance input (default 10%) to widen dead zone and prevent elastic effect with home battery
+    0.2.1 Solar mode: add tolerance input (default 10%) to widen dead zone
+    0.2.2 Solar mode: fix dead zone to -1A…0A (increase: surplus > V×(1+tol%), decrease: net > V×tol%)
 
   domain: automation
 
@@ -134,8 +135,9 @@ blueprint:
       name: Tolérance de régulation solaire (%)
       description: >
         En mode solaire, pourcentage de tolérance appliqué autour des seuils de régulation
-        afin d'élargir la zone morte et d'éviter les oscillations. À 10%, les seuils s'écartent de 10% dans chaque direction.
-        Augmenter cette valeur si l'effet élastique persiste.
+        afin d'élargir la zone morte et d'éviter les oscillations entre la batterie domestique
+        et la charge Tesla. La zone morte naturelle est -1A…0A (-250W…0W@250V).
+        À 10%, elle devient -275W…+25W. Augmenter si l'effet élastique persiste.
       default: 10
       selector:
         number:
@@ -197,9 +199,11 @@ variables:
   tolerance_pct: !input solar_tolerance
   tesla_charge_cable: !input charge_cable
   max_house: !input max_house_power
-  # Seuils calculés avec tolérance
-  threshold_increase: "{{ current_voltage * (2 + tolerance_pct / 100) }}"
-  threshold_decrease: "{{ -(current_voltage * (1 - tolerance_pct / 100)) }}"
+  # Seuils calculés avec tolérance — zone morte naturelle : -1A…0A (-V…0W)
+  # Augmenter si surplus > V×(1+tol%)  ex. 10% → 275W@250V
+  # Diminuer  si net    > V×(tol%/100) ex. 10% →  25W@250V
+  threshold_increase: "{{ current_voltage * (1 + tolerance_pct / 100) }}"
+  threshold_decrease: "{{ current_voltage * (tolerance_pct / 100) }}"
 
 action:
 
@@ -258,7 +262,7 @@ action:
                       level: warning
 
               # 2. AUGMENTATION
-              # Seuil : surplus > V × (2 + tol%) — ex. 10% → 525W@250V
+              # Seuil : surplus > V × (1 + tol%) — ex. 10% → 275W@250V
               - conditions:
                   - condition: template
                     value_template: "{{ -(net) > threshold_increase }}"
@@ -287,7 +291,7 @@ action:
                       level: warning
 
               # 3. DIMINUTION
-              # Seuil : net > -(V × (1 - tol%)) — ex. 10% → -225W@250V
+              # Seuil : net > V × (tol%) — ex. 10% → +25W@250V
               - conditions:
                   - condition: template
                     value_template: "{{ net > threshold_decrease }}"
@@ -353,7 +357,7 @@ action:
                     - Puissance Tesla: {{ (current_charge * current_voltage) | round(0) }}W
                     - Surplus disponible: {{ -(net) }}W
                     - Seuil arrêt: {{ (current_charge * current_voltage) + offset }}W
-                    - Zone morte: {{ threshold_decrease | round(0) }}W … {{ -(threshold_increase | round(0)) }}W (tol. {{ tolerance_pct }}%)
+                    - Zone morte: {{ -(threshold_increase | round(0)) }}W … {{ threshold_decrease | round(0) }}W (tol. {{ tolerance_pct }}%)
                     - SOC: {{ soc }}%
                   level: info
 
