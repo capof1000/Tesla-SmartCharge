@@ -134,8 +134,7 @@ blueprint:
       name: Tolérance de régulation solaire (%)
       description: >
         En mode solaire, pourcentage de tolérance appliqué autour des seuils de régulation
-        afin d'élargir la zone morte et d'éviter les oscillations entre la batterie domestique
-        et la charge Tesla. À 10%, les seuils s'écartent de 10% dans chaque direction.
+        afin d'élargir la zone morte et d'éviter les oscillations. À 10%, les seuils s'écartent de 10% dans chaque direction.
         Augmenter cette valeur si l'effet élastique persiste.
       default: 10
       selector:
